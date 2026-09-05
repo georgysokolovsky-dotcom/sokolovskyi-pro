@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Пауза после измены: зачем она нужна и как её выдержать</title>
+  <desc id="desc">Социальная обложка статьи PRO Мужчин.</desc>
+  <rect width="1200" height="630" fill="#1e3040"/>
+  <path d="M72 90H1128M72 540H1128" stroke="#b85e46" stroke-width="2" opacity=".9"/>
+  <text x="72" y="82" fill="#d9a08b" font-family="Arial, sans-serif" font-size="20" letter-spacing="4">PRO МУЖЧИН · СТАТЬЯ</text>
+  <text x="72" y="205" fill="#f5f3ee" font-family="Georgia, serif" font-size="60"><tspan x="72" dy="0">Пауза после измены:</tspan><tspan x="72" dy="76">зачем она нужна</tspan><tspan x="72" dy="76">и как её выдержать</tspan></text>
+  <text x="72" y="590" fill="#f5f3ee" font-family="Arial, sans-serif" font-size="18" opacity=".72">Пауза для ясности, а не для наказания</text>
+  <path d="M1010 235V395M1070 235V395" stroke="#b85e46" stroke-width="5" opacity=".85"/>
+</svg>

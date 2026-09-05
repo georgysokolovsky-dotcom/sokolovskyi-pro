@@ -1,0 +1,18 @@
+# Dependencies and build output
+node_modules/
+dist/
+tmp/
+
+# Private source material and internal working files
+private-sources/
+content/drafts/
+*.md
+!README.md
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
