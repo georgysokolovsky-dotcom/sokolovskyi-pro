@@ -5,6 +5,7 @@ import './styles.css';
 
 const portraitPath = '/images/georgiy-portrait.png';
 const siteOrigin = 'https://sokolovskyi.pro';
+const analyticsConsentKey = 'pro_muzhchin_analytics_consent';
 const webinarTarget = import.meta.env.VITE_WEBINAR_TARGET_URL || 'https://gipnogeorge.com/web/neuromagic/devaluation_man';
 const webinarParamKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'article_id', 'topic', 'placement'];
 const webinarUtmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
@@ -115,6 +116,38 @@ const articleTitles = {
 
 const legalPaths = ['/editorial-policy/', '/editorial-policy', '/privacy-policy/', '/privacy-policy', '/cookie-policy/', '/cookie-policy', '/personal-data-consent/', '/personal-data-consent', '/information-boundaries/', '/information-boundaries'];
 
+let lastTrackedPage = '';
+
+function hasAnalyticsConsent() {
+  try {
+    return window.localStorage.getItem(analyticsConsentKey) === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+function updateAnalyticsConsent(choice) {
+  try {
+    window.localStorage.setItem(analyticsConsentKey, choice);
+  } catch {
+    // Если localStorage недоступен, аналитика остаётся отключённой.
+  }
+  window.gtag?.('consent', 'update', {
+    analytics_storage: choice === 'granted' ? 'granted' : 'denied',
+  });
+}
+
+function trackEvent(name, params = {}) {
+  if (!hasAnalyticsConsent()) return;
+  window.gtag?.('event', name, params);
+}
+
+function trackPageView({ path, title, url }) {
+  if (!hasAnalyticsConsent() || lastTrackedPage === path) return;
+  lastTrackedPage = path;
+  trackEvent('page_view', { page_title: title, page_location: url, page_path: path });
+}
+
 function navigate(path) {
   const destination = new URL(path, window.location.origin);
   const incoming = readWebinarParams();
@@ -179,6 +212,7 @@ function recordWebinarClick(params) {
     if (previous?.signature === signature && Date.now() - new Date(previous.clicked_at).getTime() < 1500) return;
     stored.push({ ...entry, signature, clicked_at: new Date().toISOString() });
     window.localStorage.setItem('pro_muzhchin_webinar_clicks', JSON.stringify(stored.slice(-50)));
+    trackEvent('webinar_click', entry);
   } catch {
     // Локальная фиксация клика не должна мешать переходу на регистрацию.
   }
@@ -199,6 +233,34 @@ function Header() {
 
 function Footer() {
   return <footer className="site-footer"><div className="shell site-footer__inner"><BrandMark /><div className="site-footer__links"><Link href="/contacts/">Контакты</Link><Link href="/editorial-policy/">Редакционная политика</Link><Link href="/privacy-policy/">Политика конфиденциальности</Link><Link href="/cookie-policy/">Файлы cookie</Link></div><p className="site-footer__note">Материалы сайта помогают разобраться в ситуации. Они не заменяют медицинскую, юридическую или экстренную помощь.</p></div></footer>;
+}
+
+function CookieConsent() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    let choice = null;
+    try {
+      choice = window.localStorage.getItem(analyticsConsentKey);
+    } catch {
+      // При недоступном localStorage аналитика останется отключённой.
+    }
+    if (choice) window.gtag?.('consent', 'update', { analytics_storage: choice === 'granted' ? 'granted' : 'denied' });
+    setVisible(!choice);
+  }, []);
+
+  if (!visible) return null;
+
+  const choose = (choice) => {
+    updateAnalyticsConsent(choice);
+    if (choice === 'granted') {
+      lastTrackedPage = window.location.pathname;
+      trackEvent('page_view', { page_title: document.title, page_location: window.location.href, page_path: window.location.pathname });
+    }
+    setVisible(false);
+  };
+
+  return <aside className="cookie-consent" role="dialog" aria-label="Настройки аналитики"><div><p className="cookie-consent__title">Настройки cookie</p><p>Мы используем обезличенную аналитику, чтобы понимать, какие материалы помогают читателям. Можно разрешить её или оставить только необходимые cookie.</p><Link href="/cookie-policy/">Подробнее о cookie</Link></div><div className="cookie-consent__actions"><button className="button button--accent" type="button" onClick={() => choose('granted')}>Разрешить аналитику</button><button className="cookie-consent__secondary" type="button" onClick={() => choose('denied')}>Только необходимые</button></div></aside>;
 }
 
 function Breadcrumbs({ items }) {
@@ -316,6 +378,7 @@ function RouteMeta({ path }) {
     twitterTitle?.setAttribute('content', pageTitle);
     twitterDescription?.setAttribute('content', pageDescription);
     twitterImage?.setAttribute('content', articleImage);
+    trackPageView({ path: canonicalPath, title: pageTitle, url: canonicalUrl });
   }, [path, article, topic]);
   return null;
 }
@@ -334,4 +397,4 @@ function App() {
   return known ? route : <><Header /><NotFoundPage /></>;
 }
 
-createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>);
+createRoot(document.getElementById('root')).render(<StrictMode><App /><CookieConsent /></StrictMode>);
