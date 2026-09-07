@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /go/
+Disallow: /cases/
+Disallow: /editorial-policy/
+Disallow: /privacy-policy/
+Disallow: /cookie-policy/
+Disallow: /personal-data-consent/
+Disallow: /information-boundaries/
+
+Sitemap: https://sokolovskyi.pro/sitemap.xml
