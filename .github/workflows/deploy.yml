@@ -33,8 +33,8 @@ jobs:
       - name: Build site
         run: npm run build
 
-      - name: Keep SPA routes working on GitHub Pages
-        run: cp dist/index.html dist/404.html
+      - name: Prepare static route entry points
+        run: node scripts/prepare-pages.mjs
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
