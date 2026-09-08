@@ -1,0 +1,109 @@
+---
+import BaseLayout from '../../../../src/layouts/BaseLayout.astro';
+import Header from '../../../../src/components/Header.astro';
+import Footer from '../../../../src/components/Footer.astro';
+import PageIntro from '../../../../src/components/PageIntro.astro';
+import { menWebinarFunnel } from '../data/men-webinar-v1.js';
+import { buildBreadcrumbJsonLd } from '../../../../src/lib/seo.js';
+
+const apiOrigin = import.meta.env.PUBLIC_FUNNEL_API_ORIGIN ?? '';
+const breadcrumbItems = [{ label: 'Видеоразбор' }];
+---
+<BaseLayout
+  title="Видеоразбор — PRO Мужчин"
+  description="Видеоразбор для мужчин в кризисе отношений."
+  robots="noindex, nofollow"
+  jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}
+>
+  <Header />
+  <main class="video-funnel-page" data-api-origin={apiOrigin}>
+    <PageIntro breadcrumbs={breadcrumbItems} title="Видеоразбор" lead="Страница открывается по персональной ссылке из Telegram." />
+    <section class="video-funnel-shell shell section-space" aria-live="polite">
+      <div class="video-funnel-status" data-video-status>
+        <p class="section-label">Проверка доступа</p>
+        <h2>Подготавливаем видеоразбор</h2>
+        <p>Ссылка действует ограниченное время и предназначена для одного участника воронки.</p>
+      </div>
+      <div class="video-funnel-player" data-video-player hidden>
+        <div class="video-funnel-player__placeholder">
+          <span aria-hidden="true">▷</span>
+          <p>Видео подключается отдельным провайдером после технического анализа.</p>
+        </div>
+      </div>
+      <div class="video-funnel-cta" data-video-cta hidden>
+        <p class="section-label">Следующий шаг</p>
+        <h2>Если хочешь разобрать свою ситуацию глубже</h2>
+        <a class="button button--accent" href={menWebinarFunnel.applicationReference} data-application-link>Начать заявку</a>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<script define:vars={{ apiOrigin }}>
+  const root = document.querySelector('.video-funnel-page');
+  const status = root?.querySelector('[data-video-status]');
+  const player = root?.querySelector('[data-video-player]');
+  const cta = root?.querySelector('[data-video-cta]');
+  const webinarToken = new URLSearchParams(window.location.search).get('t');
+  const origin = apiOrigin.replace(/\/$/, '');
+
+  const showError = (message) => {
+    if (!status) return;
+    status.innerHTML = `<p class="section-label">Видеоразбор</p><h2>${message}</h2><p>Запроси новую ссылку в Telegram, если срок действия истёк.</p>`;
+  };
+
+  const emit = async (eventType, metadata = {}) => {
+    if (!origin || !webinarToken) throw new Error('funnel_context_missing');
+    const response = await fetch(`${origin}/v1/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: webinarToken, eventType, metadata, idempotencyKey: `${eventType}:${webinarToken.slice(-12)}` }),
+      keepalive: true,
+    });
+    if (!response.ok) throw new Error('event_failed');
+    return response.json();
+  };
+
+  const applicationLink = cta?.querySelector('[data-application-link]');
+  applicationLink?.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (!origin || !webinarToken) return;
+    applicationLink.setAttribute('aria-busy', 'true');
+    try {
+      await emit('cta_clicked', { placement: 'webinar' });
+      const response = await fetch(`${origin}/v1/applications/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: webinarToken }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok || !payload.url) throw new Error('application_token_failed');
+      window.location.href = payload.url;
+    } catch {
+      applicationLink.removeAttribute('aria-busy');
+      showError('Не удалось открыть форму заявки');
+    }
+  });
+
+  if (!webinarToken) {
+    showError('Нужна персональная ссылка из Telegram');
+  } else if (!origin) {
+    showError('Сервер воронки ещё не подключён');
+  } else {
+    fetch(`${origin}/v1/webinar/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: webinarToken }),
+    })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('unauthorized')))
+      .then((payload) => {
+        if (!payload.ok) throw new Error('unauthorized');
+        status?.setAttribute('hidden', '');
+        player?.removeAttribute('hidden');
+        cta?.removeAttribute('hidden');
+        void emit('webinar_page_view', { video_id: payload.webinar?.videoId ?? 'unconfigured' });
+      })
+      .catch(() => showError('Ссылка недействительна или истекла'));
+  }
+</script>

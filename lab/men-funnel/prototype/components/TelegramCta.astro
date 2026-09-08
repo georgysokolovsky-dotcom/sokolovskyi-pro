@@ -1,0 +1,19 @@
+---
+import { menWebinarFunnel } from '../data/men-webinar-v1.js';
+
+const {
+  startParameter,
+  label = 'Открыть Telegram',
+  class: className = 'button button--accent',
+} = Astro.props;
+const botUsername = menWebinarFunnel.botUsername.replace(/^@/, '');
+const href = `https://t.me/${botUsername}?start=${encodeURIComponent(startParameter)}`;
+---
+<a
+  class={className}
+  href={href}
+  target="_blank"
+  rel="noopener noreferrer"
+  data-telegram-bot={botUsername}
+  data-start-parameter={startParameter}
+><slot>{label}</slot></a>

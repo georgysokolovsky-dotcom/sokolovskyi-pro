@@ -1,0 +1,122 @@
+---
+import BaseLayout from '../../../../src/layouts/BaseLayout.astro';
+import Footer from '../../../../src/components/Footer.astro';
+import Header from '../../../../src/components/Header.astro';
+import PageIntro from '../../../../src/components/PageIntro.astro';
+import { buildBreadcrumbJsonLd } from '../../../../src/lib/seo.js';
+
+const apiOrigin = import.meta.env.PUBLIC_FUNNEL_API_ORIGIN ?? '';
+const breadcrumbItems = [{ label: 'Заявка' }];
+---
+<BaseLayout
+  title="Заявка — PRO Мужчин"
+  description="Локальная форма заявки после видеоразбора."
+  robots="noindex, nofollow"
+  jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}
+>
+  <Header />
+  <main class="application-page" data-api-origin={apiOrigin}>
+    <PageIntro breadcrumbs={breadcrumbItems} title="Заявка" lead="Коротко опиши ситуацию и следующий шаг, который хочешь разобрать." />
+    <section class="application-shell shell section-space">
+      <form class="application-form" data-application-form data-policy-version="draft-local-1">
+        <div class="application-form__grid">
+          <label class="application-form__field">
+            <span>Имя *</span>
+            <input name="name" required autocomplete="name" maxlength="200" />
+          </label>
+          <label class="application-form__field application-form__field--wide">
+            <span>Что происходит сейчас? *</span>
+            <textarea name="situation" required maxlength="2000"></textarea>
+            <small>Опиши только то, что нужно для заявки. Не указывай данные других людей, документы, медицинские диагнозы, данные детей или финансовые сведения.</small>
+          </label>
+        </div>
+        <label class="application-form__consent">
+          <input name="consent" type="checkbox" required />
+          <span>Соглашаюсь на обработку данных для ответа на заявку. Версии документов и юридический текст будут подключены до запуска продакшена; сейчас это локальный черновой контур.</span>
+        </label>
+        <div class="application-form__actions">
+          <button class="button button--accent" type="submit" data-application-submit>Отправить заявку</button>
+          <p class="application-form__status" data-application-status role="status">Заполнение доступно в локальном контуре после подключения сервера воронки.</p>
+        </div>
+      </form>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<script define:vars={{ apiOrigin }}>
+  const root = document.querySelector('.application-page');
+  const form = root?.querySelector('[data-application-form]');
+  const status = root?.querySelector('[data-application-status]');
+  const submit = root?.querySelector('[data-application-submit]');
+  const token = new URLSearchParams(window.location.search).get('t');
+  const origin = apiOrigin.replace(/\/$/, '');
+  const fieldNames = ['name', 'situation'];
+
+  const setStatus = (message, tone = '') => {
+    if (!status) return;
+    status.textContent = message;
+    if (tone) status.dataset.tone = tone;
+    else delete status.dataset.tone;
+  };
+
+  const emitStarted = () => {
+    if (!origin || !token) return;
+    fetch(`${origin}/v1/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        eventType: 'application_started',
+        metadata: {},
+        idempotencyKey: `application-started:${token.slice(-12)}`,
+      }),
+      keepalive: true,
+    }).catch(() => {});
+  };
+
+  if (!token) {
+    submit?.setAttribute('disabled', '');
+    setStatus('Нужна персональная ссылка из Telegram.', 'error');
+  } else if (!origin) {
+    submit?.setAttribute('disabled', '');
+    setStatus('Сервер заявки ещё не подключён. Это локальный каркас страницы.', 'error');
+  } else {
+    emitStarted();
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!token || !origin || !form || !submit) return;
+    if (!form.reportValidity()) return;
+    submit.setAttribute('disabled', '');
+    setStatus('Отправляем заявку…');
+    const answers = Object.fromEntries(fieldNames
+      .map((name) => [name, String(new FormData(form).get(name) ?? '').trim()])
+      .filter(([, value]) => value));
+    try {
+      const response = await fetch(`${origin}/v1/applications`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          answers,
+          consent: {
+            accepted: form.elements.consent.checked,
+            policyVersion: form.dataset.policyVersion,
+            source: 'video-application',
+            timestamp: new Date().toISOString(),
+          },
+          idempotencyKey: `application:${token.slice(-24)}`,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error('application_failed');
+      setStatus('Заявка принята в локальном контуре.', 'success');
+      form.querySelectorAll('input, textarea, select, button').forEach((control) => control.setAttribute('disabled', ''));
+    } catch {
+      submit.removeAttribute('disabled');
+      setStatus('Не удалось отправить заявку. Проверь локальный сервер и попробуй ещё раз.', 'error');
+    }
+  });
+</script>

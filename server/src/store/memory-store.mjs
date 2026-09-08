@@ -1,0 +1,219 @@
+import { randomUUID } from 'node:crypto';
+
+const clone = (value) => value == null ? value : structuredClone(value);
+
+export class MemoryStore {
+  constructor({ now = () => new Date() } = {}) {
+    this.now = now;
+    this.funnels = new Map();
+    this.sources = new Map();
+    this.bonuses = new Map();
+    this.messageTemplates = new Map();
+    this.automationRules = new Map();
+    this.webinars = new Map();
+    this.users = new Map();
+    this.telegramUsers = new Map();
+    this.events = [];
+    this.eventKeys = new Set();
+    this.applications = new Map();
+    this.applicationKeys = new Map();
+    this.deletionRequests = new Map();
+  }
+
+  seed({ funnel, sources = [], bonuses = [], messageTemplates = [], automationRules = [], webinar }) {
+    this.funnels.set(funnel.id, clone(funnel));
+    for (const source of sources) this.sources.set(source.id, clone(source));
+    for (const bonus of bonuses) this.bonuses.set(bonus.id, clone(bonus));
+    for (const template of messageTemplates) this.messageTemplates.set(template.id, clone(template));
+    for (const rule of automationRules) this.automationRules.set(rule.id, clone(rule));
+    if (webinar) this.webinars.set(webinar.id, clone(webinar));
+  }
+
+  getFunnel(funnelId) {
+    return clone(this.funnels.get(funnelId) ?? null);
+  }
+
+  findSourceByStartParameter(funnelId, startParameter) {
+    return [...this.sources.values()].find((source) => source.funnelId === funnelId && source.startParameter === startParameter) ?? null;
+  }
+
+  findSourceById(sourceId) {
+    return this.sources.get(sourceId) ?? null;
+  }
+
+  findBonusForSource(funnelId, sourceId) {
+    return [...this.bonuses.values()].find((bonus) => bonus.funnelId === funnelId && bonus.sourceId === sourceId && bonus.status === 'active') ?? null;
+  }
+
+  findBonusForFunnel(funnelId, useCase = 'entry') {
+    return [...this.bonuses.values()].find((bonus) => bonus.funnelId === funnelId && bonus.sourceId == null && bonus.useCase === useCase && bonus.status === 'active') ?? null;
+  }
+
+  findMessageTemplate(funnelId, name) {
+    return [...this.messageTemplates.values()].find((template) => template.funnelId === funnelId && template.name === name && template.status === 'active') ?? null;
+  }
+
+  listAutomationRules(funnelId) {
+    return clone([...this.automationRules.values()].filter((rule) => rule.funnelId === funnelId && rule.status === 'active'));
+  }
+
+  findUserByTelegramId(telegramUserId) {
+    const record = [...this.telegramUsers.values()].find((item) => String(item.telegramUserId) === String(telegramUserId));
+    return record ? this.users.get(record.userId) ?? null : null;
+  }
+
+  createUser({ funnelId, sourceId = null, anonymousSessionId = null, firstTouch = null, funnelEntryTouch = null, entryNotice = null, leadStatus = 'anonymous' }) {
+    const now = this.now().toISOString();
+    const user = {
+      id: randomUUID(),
+      funnelId,
+      sourceId,
+      anonymousSessionId,
+      firstTouch: clone(firstTouch),
+      funnelEntryTouch: clone(funnelEntryTouch),
+      entryNotice: clone(entryNotice),
+      promotionalEnabled: true,
+      stopRequestedAt: null,
+      deletionRequestedAt: null,
+      leadStatus,
+      firstContactAt: now,
+      lastEventAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.users.set(user.id, user);
+    return clone(user);
+  }
+
+  updateUser(userId, patch) {
+    const current = this.users.get(userId);
+    if (!current) return null;
+    const updated = { ...current, ...patch, updatedAt: this.now().toISOString() };
+    this.users.set(userId, updated);
+    return clone(updated);
+  }
+
+  getUser(userId) {
+    return clone(this.users.get(userId) ?? null);
+  }
+
+  setPromotionalEnabled(userId, enabled, stoppedAt = null) {
+    return this.updateUser(userId, {
+      promotionalEnabled: Boolean(enabled),
+      stopRequestedAt: enabled ? null : stoppedAt,
+    });
+  }
+
+  upsertTelegramUser({ userId, telegramUserId, firstName = null, username = null, languageCode = null }) {
+    const existing = this.telegramUsers.get(userId);
+    const now = this.now().toISOString();
+    const record = {
+      userId,
+      telegramUserId: String(telegramUserId),
+      firstName,
+      username,
+      languageCode,
+      firstStartedAt: existing?.firstStartedAt ?? now,
+      lastStartedAt: now,
+      channelStatus: existing?.channelStatus ?? 'unknown',
+      unsubscribedAt: existing?.unsubscribedAt ?? null,
+    };
+    this.telegramUsers.set(userId, record);
+    return clone(record);
+  }
+
+  getTelegramUser(userId) {
+    return clone(this.telegramUsers.get(userId) ?? null);
+  }
+
+  requestDataDeletion({ userId, funnelId }) {
+    const key = `${funnelId}:${userId}`;
+    const existing = this.deletionRequests.get(key);
+    if (existing) return clone(existing);
+    const request = {
+      id: randomUUID(),
+      userId,
+      funnelId,
+      status: 'requested',
+      requestedAt: this.now().toISOString(),
+      processedAt: null,
+    };
+    this.deletionRequests.set(key, request);
+    this.updateUser(userId, { deletionRequestedAt: request.requestedAt });
+    return clone(request);
+  }
+
+  getDataDeletionRequest({ userId, funnelId }) {
+    return clone(this.deletionRequests.get(`${funnelId}:${userId}`) ?? null);
+  }
+
+  addEvent({ userId = null, anonymousSessionId = null, funnelId, eventType, metadata = {}, idempotencyKey = null }) {
+    const key = idempotencyKey ? `${funnelId}:${idempotencyKey}` : null;
+    if (key && this.eventKeys.has(key)) {
+      return { event: clone(this.events.find((item) => `${item.funnelId}:${item.idempotencyKey}` === key)), duplicate: true };
+    }
+    const event = {
+      id: randomUUID(),
+      userId,
+      anonymousSessionId,
+      funnelId,
+      eventType,
+      occurredAt: this.now().toISOString(),
+      metadata: clone(metadata),
+      idempotencyKey,
+    };
+    this.events.push(event);
+    if (key) this.eventKeys.add(key);
+    if (userId) this.updateUser(userId, { lastEventAt: event.occurredAt });
+    return { event: clone(event), duplicate: false };
+  }
+
+  listUserEvents(userId) {
+    return clone(this.events.filter((event) => event.userId === userId));
+  }
+
+  createApplication({ userId, funnelId, answers, consent, idempotencyKey }) {
+    if (idempotencyKey && this.applicationKeys.has(idempotencyKey)) {
+      return { application: clone(this.applications.get(this.applicationKeys.get(idempotencyKey))), duplicate: true };
+    }
+    const now = this.now().toISOString();
+    const application = {
+      id: randomUUID(),
+      userId,
+      funnelId,
+      status: 'submitted',
+      answers: clone(answers),
+      privacyPolicyVersion: consent.policyVersion,
+      consent: clone(consent),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.applications.set(application.id, application);
+    if (idempotencyKey) this.applicationKeys.set(idempotencyKey, application.id);
+    return { application: clone(application), duplicate: false };
+  }
+
+  getApplicationForUser(userId) {
+    return clone([...this.applications.values()].find((application) => application.userId === userId) ?? null);
+  }
+
+  dashboard(funnelId) {
+    const inFunnel = this.events.filter((event) => event.funnelId === funnelId);
+    const count = (eventType) => new Set(inFunnel.filter((event) => event.eventType === eventType).map((event) => event.userId ?? event.anonymousSessionId ?? event.id)).size;
+    return {
+      funnelId,
+      visitors: count('article_view'),
+      telegramStarts: count('telegram_start'),
+      bonusDeliveryAttempts: count('bonus_delivery_attempted'),
+      bonusSent: count('bonus_sent'),
+      bonusDeliveryFailed: count('bonus_delivery_failed'),
+      webinarStarted: count('webinar_started'),
+      watched25: count('watched_25'),
+      watched50: count('watched_50'),
+      watched75: count('watched_75'),
+      ctaClicks: count('cta_clicked'),
+      applications: this.events.filter((event) => event.funnelId === funnelId && event.eventType === 'application_submitted').length,
+      users: [...this.users.values()].filter((user) => user.funnelId === funnelId).length,
+    };
+  }
+}

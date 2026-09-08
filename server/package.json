@@ -1,0 +1,11 @@
+{
+  "name": "pro-muzhchin-funnel-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "dev": "node --watch src/index.mjs",
+    "test": "node --test"
+  }
+}
