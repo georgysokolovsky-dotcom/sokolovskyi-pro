@@ -1,0 +1,61 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import Header from '../../../components/Header.astro';
+import Footer from '../../../components/Footer.astro';
+import Breadcrumbs from '../../../components/Breadcrumbs.astro';
+import ArticleCta from '../../../components/ArticleCta.astro';
+import { topicList, getTopicBySlug } from '../../../data/topics.js';
+import { publishedArticles, sortArticles, articleCardData } from '../../../lib/articles.js';
+import { validateArticleEntries } from '../../../lib/content-validation.js';
+import { absoluteUrl } from '../../../lib/site-routes.js';
+import { buildBreadcrumbJsonLd } from '../../../lib/seo.js';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('articles');
+  validateArticleEntries(entries);
+  const published = publishedArticles(entries);
+  return topicList.flatMap((topic) => {
+    const articles = sortArticles(published.filter((entry) => entry.data.topic === topic.id));
+    return articles.length > 0 ? [{ params: { topic: topic.slug }, props: { topic, articles } }] : [];
+  });
+}
+
+const { topic, articles } = Astro.props;
+const canonical = absoluteUrl(`/topics/${topic.slug}/`);
+const breadcrumbItems = [{ label: 'Темы', href: '/topics/' }, { label: topic.label }];
+---
+<BaseLayout title={`${topic.label} — PRO Мужчин`} description={topic.description} canonical={canonical} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+  <Header />
+  <main class="topic-page">
+    <section class="topic-hero shell">
+      <Breadcrumbs items={breadcrumbItems} />
+      <h1>{topic.label}</h1>
+      <p>{topic.description}</p>
+      <hr />
+      <span>Здесь собраны материалы, которые помогают увидеть ситуацию яснее и выбрать следующий шаг без лишнего давления.</span>
+    </section>
+    <section class="topic-materials shell section-space">
+      <div class="topic-materials__list">
+        <div class="section-heading"><h2>Материалы по теме</h2></div>
+        {articles.map((entry, index) => { const article = articleCardData(entry); return <a href={article.href} class="topic-article"><span class="topic-article__number">{String(index + 1).padStart(2, '0')}</span><div><h3>{article.title}</h3><p>{article.description}</p></div><span class="topic-article__time">{article.time} чтения</span></a>; })}
+      </div>
+      <div class="topic-start">
+        <p class="section-label">Как читать раздел</p><h2>Сначала — ближайший шаг</h2>
+        <ol>
+          <li><span>01</span><div><strong>Остановить импульс</strong><p>Не принимай важное решение в момент, когда тобой управляет страх или злость.</p></div></li>
+          <li><span>02</span><div><strong>Отделить факты</strong><p>Раздели происходящее, свои догадки и действия, которые зависят от тебя.</p></div></li>
+          <li><span>03</span><div><strong>Выбрать разговор</strong><p>Сформулируй следующий вопрос или границу так, чтобы их можно было выполнить.</p></div></li>
+        </ol>
+      </div>
+    </section>
+    <section class="topic-case">
+      <div class="shell topic-case__inner">
+        <p class="section-label">Случаи из практики</p>
+        <div><h2>Раздел будет пополняться после проверки материалов</h2><p>Обезличенные случаи публикуются отдельно после ручной проверки конфиденциальности и разрешения на использование.</p></div>
+      </div>
+    </section>
+    <section class="webinar-band"><div class="shell webinar-band__inner"><div class="play-mark" aria-hidden="true"><span>▷</span></div><div class="webinar-band__copy"><p class="section-label">Бесплатный вебинар</p><h2>3 шага как стать мужчиной, с которым считаются, ценят и боятся потерять</h2></div><ArticleCta placement="footer" articleId={`topic_${topic.id}`} topic={topic.id}>Посмотреть вебинар</ArticleCta></div></section>
+  </main>
+  <Footer />
+</BaseLayout>

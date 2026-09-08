@@ -119,6 +119,8 @@ h3 { font-size: 20px; line-height: 1.18; }
 .site-footer__inner { display: grid; grid-template-columns: 1fr 2fr; align-items: start; column-gap: 80px; row-gap: 24px; padding-top: 45px; padding-bottom: 46px; }
 .site-footer__links { display: flex; flex-wrap: wrap; justify-content: end; gap: 16px 32px; color: rgba(230,227,220,.73); font-size: 13px; }
 .site-footer__links a:hover { color: #fff; }
+.site-footer__cookie-settings { padding: 0; border: 0; color: inherit; background: transparent; font: inherit; font-size: inherit; cursor: pointer; }
+.site-footer__cookie-settings:hover { color: #fff; }
 .site-footer__note { grid-column: 2; max-width: 540px; margin: 0; color: rgba(230,227,220,.48); font-size: 12px; line-height: 1.5; }
 
 .breadcrumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 30px; color: var(--muted); font-size: 13px; }

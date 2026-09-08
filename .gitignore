@@ -16,3 +16,13 @@ content/drafts/
 
 # OS files
 .DS_Store
+
+# Public Astro content and migration evidence are intentionally versioned.
+.astro/
+!src/content/
+!src/content/articles/
+!src/content/articles/*.md
+!migration/
+!migration/target-architecture.md
+!migration/baseline/
+!migration/baseline/*.json

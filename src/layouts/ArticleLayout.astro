@@ -1,0 +1,59 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import ArticleCta from '../components/ArticleCta.astro';
+import ArticleMeta from '../components/ArticleMeta.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import RelatedArticles from '../components/RelatedArticles.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import WebinarBand from '../components/WebinarBand.astro';
+import { authors } from '../data/authors.js';
+import { site } from '../data/site.js';
+import { getTopicFromArticle, absoluteUrl } from '../lib/site-routes.js';
+import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../lib/seo.js';
+
+const { entry, Content, relatedArticles = [] } = Astro.props;
+const { title, description, slug, author, datePublished, dateModified, topic: topicId, search_intent: searchIntent } = entry.data;
+const topic = getTopicFromArticle(entry);
+const canonical = absoluteUrl(`/articles/${slug}/`);
+const breadcrumbItems = [
+  { label: 'Статьи', href: '/articles/' },
+  { label: topic?.label ?? 'Материал' },
+  { label: title },
+];
+const summary = (entry.body ?? '').match(/^- \[([^\]]+)\]\(#([^\)]+)\)/gm)?.map((line) => {
+  const match = line.match(/^- \[([^\]]+)\]\(#([^\)]+)\)/);
+  return match ? { label: match[1], id: match[2] } : null;
+}).filter(Boolean) ?? [];
+const authorRecord = authors[author];
+const jsonLd = [
+  buildArticleJsonLd(entry, topic),
+  buildBreadcrumbJsonLd(breadcrumbItems),
+];
+---
+<BaseLayout title={`${title} — PRO Мужчин`} description={description} canonical={canonical} ogType="article" ogImage={`${site.origin}/images/social/${entry.data.article_id}-social.svg`} ogImageAlt={title} jsonLd={jsonLd}>
+  <Header />
+  <main class="article-page" data-article-slug={slug}>
+    <div class="shell article-layout">
+      <article class="article-content">
+        <Breadcrumbs items={breadcrumbItems} />
+        <h1>{title}</h1>
+        <ArticleMeta author={authorRecord.name} datePublished={datePublished} dateModified={dateModified} />
+        <div class="article-summary" aria-label="Краткое содержание">
+          <strong>В статье:</strong>
+          {summary.map((item) => <a href={`#${item.id}`}>{item.label}</a>)}
+        </div>
+        <div class="article-prose"><Content /></div>
+        <ArticleCta articleId={entry.data.article_id ?? slug} topic={topicId} searchIntent={searchIntent} placement="inline" />
+      </article>
+      {summary.length > 0 && <aside class="article-aside">
+        <p class="aside-title">В этой статье</p>
+        <nav aria-label="Разделы статьи">{summary.map((item) => <a href={`#${item.id}`}>{item.label}</a>)}</nav>
+        <div class="aside-note"><span>01</span><p>Читай в своём темпе. Тебе не нужно принять решение за один вечер.</p></div>
+      </aside>}
+    </div>
+    <WebinarBand compact articleId={entry.data.article_id ?? slug} topic={topicId} />
+    <RelatedArticles articles={relatedArticles} />
+  </main>
+  <Footer />
+</BaseLayout>

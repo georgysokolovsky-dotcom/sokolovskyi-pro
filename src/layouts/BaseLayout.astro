@@ -1,0 +1,28 @@
+---
+import SeoHead from '../components/SeoHead.astro';
+import '../styles/global.css';
+
+const {
+  title = 'PRO Мужчин',
+  description = 'PRO Мужчин — авторский ресурс для мужчин в кризисе отношений.',
+  canonical = null,
+  robots = 'index, follow',
+  ogType = 'website',
+  ogImage,
+  ogImageAlt,
+  jsonLd = [],
+} = Astro.props;
+---
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <SeoHead title={title} description={description} canonical={canonical} robots={robots} ogType={ogType} ogImage={ogImage} ogImageAlt={ogImageAlt} jsonLd={jsonLd} />
+    <slot name="head" />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

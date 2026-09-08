@@ -1,0 +1,8 @@
+---
+const { items = [] } = Astro.props;
+---
+<nav class="breadcrumbs" aria-label="Хлебные крошки">
+  <ol>
+    {items.map((item) => <li>{item.href ? <a href={item.href}>{item.label}</a> : item.label}</li>)}
+  </ol>
+</nav>

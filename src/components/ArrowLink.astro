@@ -1,0 +1,4 @@
+---
+const { href, class: className = '' } = Astro.props;
+---
+<a href={href} class={`arrow-link ${className}`}><slot /><span aria-hidden="true">→</span></a>

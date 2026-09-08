@@ -1,0 +1,31 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import PageIntro from '../components/PageIntro.astro';
+import AuthorPortrait from '../components/AuthorPortrait.astro';
+import ArrowLink from '../components/ArrowLink.astro';
+import WebinarBand from '../components/WebinarBand.astro';
+import { absoluteUrl } from '../lib/site-routes.js';
+import { buildBreadcrumbJsonLd, buildPersonJsonLd } from '../lib/seo.js';
+
+const breadcrumbItems = [{ label: 'Об авторе' }];
+---
+<BaseLayout title="Об авторе — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/about/')} jsonLd={[buildPersonJsonLd(), buildBreadcrumbJsonLd(breadcrumbItems)]}>
+  <Header />
+  <main>
+    <PageIntro breadcrumbs={breadcrumbItems} title="Георгий Соколовский — ментор для мужчин" lead="Помогаю мужчинам выйти из кризиса после измены, предательства или развода и снова стать уверенными в себе." />
+    <section class="profile-section shell section-space">
+      <div class="profile-photo"><AuthorPortrait alt="Георгий Соколовский" sizes="(max-width: 720px) 100vw, 420px" /></div>
+      <div class="profile-copy" id="person">
+        <p class="section-label">Почему я занимаюсь этим</p>
+        <h2>В кризисе легко потерять управление своей жизнью</h2>
+        <p>Я работаю с мужчинами, которые столкнулись с изменой супруги, угрозой развода, потерей семьи, обесцениванием, ревностью или ощущением, что после многих лет брака исчезла привычная опора.</p>
+        <p>До помогающей практики я занимался бизнесом, управлял ночным клубом, прошёл выгорание и переезд из Украины в Испанию. Поэтому в работе учитываю не только разговоры об отношениях, но и семью, детей, финансовые обязательства и давление реальной жизни.</p>
+      </div>
+    </section>
+    <section class="profile-band"><div class="shell profile-band__inner"><div><p class="section-label">Моя задача в работе</p><h2>Вернуть мужчине возможность спокойно думать, говорить и выбирать</h2></div><p>Мы разбираем эмоциональные реакции, прошлый опыт, повторяющиеся сценарии и решения, которые принимаются в кризисном состоянии. Конкретный исход отношений заранее не обещается.</p></div></section>
+    <WebinarBand articleId="about" topic="overview" />
+  </main>
+  <Footer />
+</BaseLayout>

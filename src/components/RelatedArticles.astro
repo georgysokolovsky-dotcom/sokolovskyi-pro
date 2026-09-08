@@ -1,0 +1,13 @@
+---
+import { articlePath } from '../lib/site-routes.js';
+
+const { articles = [] } = Astro.props;
+---
+{articles.length > 0 && <section class="related shell section-space">
+  <div class="section-heading section-heading--line"><h2>Ещё по теме</h2></div>
+  <div class="related-grid">
+    {articles.map((article) => <a href={articlePath(article.data.slug)} class="related-card">
+      <h3>{article.data.title}</h3><p>Связанный материал</p><span aria-hidden="true">→</span>
+    </a>)}
+  </div>
+</section>}

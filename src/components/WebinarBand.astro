@@ -1,0 +1,15 @@
+---
+import ArticleCta from './ArticleCta.astro';
+
+const { compact = false, articleId = 'home', topic = 'overview' } = Astro.props;
+---
+<section class={`webinar-band ${compact ? 'webinar-band--compact' : ''}`}>
+  <div class="shell webinar-band__inner">
+    <div class="play-mark" aria-hidden="true"><span>▷</span></div>
+    <div class="webinar-band__copy">
+      <p class="section-label">Бесплатный вебинар</p>
+      <h2>3 шага как стать мужчиной, с которым считаются, ценят и боятся потерять</h2>
+    </div>
+    <ArticleCta placement={compact ? 'inline' : 'footer'} articleId={articleId} topic={topic}>{compact ? 'Регистрация' : 'Посмотреть вебинар'}</ArticleCta>
+  </div>
+</section>

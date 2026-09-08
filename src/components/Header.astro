@@ -1,0 +1,23 @@
+---
+import ArticleCta from './ArticleCta.astro';
+---
+<header class="site-header">
+  <div class="site-header__inner shell">
+    <a class="brand-mark" href="/">PRO Мужчин</a>
+    <nav class="main-nav" aria-label="Основная навигация">
+      <a href="/articles/">Статьи</a>
+      <a href="/method/">Подход</a>
+      <a href="/about/">Об авторе</a>
+      <ArticleCta placement="header" articleId="home" topic="overview">На вебинар</ArticleCta>
+    </nav>
+    <details class="mobile-menu">
+      <summary class="menu-toggle" aria-label="Открыть меню"><span></span><span></span></summary>
+      <nav class="main-nav" aria-label="Мобильная навигация">
+        <a href="/articles/">Статьи</a>
+        <a href="/method/">Подход</a>
+        <a href="/about/">Об авторе</a>
+        <ArticleCta placement="header" articleId="home" topic="overview">На вебинар</ArticleCta>
+      </nav>
+    </details>
+  </div>
+</header>

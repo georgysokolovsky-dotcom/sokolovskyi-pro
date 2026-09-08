@@ -1,0 +1,28 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import PageIntro from '../components/PageIntro.astro';
+import ArticleCta from '../components/ArticleCta.astro';
+import { absoluteUrl } from '../lib/site-routes.js';
+import { buildBreadcrumbJsonLd } from '../lib/seo.js';
+
+const breadcrumbItems = [{ label: 'Бесплатный вебинар' }];
+---
+<BaseLayout title="Бесплатный вебинар — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/webinar/')} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+  <Header />
+  <main>
+    <PageIntro dark breadcrumbs={breadcrumbItems} title="3 шага как стать мужчиной, с которым считаются, ценят и боятся потерять" lead="Мужской разговор примерно на 90 минут о состоянии, повторяющихся сценариях и решениях, которые можно принимать из большей ясности.">
+      <ArticleCta placement="webinar" articleId="webinar" topic="overview">Зарегистрироваться</ArticleCta>
+    </PageIntro>
+    <section class="webinar-detail shell section-space">
+      <div class="webinar-detail__intro"><p class="section-label">Что внутри</p><h2>Три шага, чтобы вернуть себе управление</h2><p>Вебинар начинается с узнаваемых ситуаций, а затем переводит разговор к тому, что мужчина может менять в своих реакциях и действиях.</p></div>
+      <div class="webinar-steps">
+        <div><span>01</span><div><h3>Освободиться от ограничивающих сценариев</h3><p>Увидеть, как прошлый опыт и привычные реакции влияют на решения.</p></div></div>
+        <div><span>02</span><div><h3>Переписать внутренние установки</h3><p>Найти новые способы реагировать, разговаривать и держать границы.</p></div></div>
+        <div><span>03</span><div><h3>Строить отношения из мужской силы</h3><p>Принимать решения не из страха потери, а из понимания своих ценностей и выбора.</p></div></div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>

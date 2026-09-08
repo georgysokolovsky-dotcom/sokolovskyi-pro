@@ -1,0 +1,18 @@
+---
+import { Picture } from 'astro:assets';
+import portrait from '../assets/images/georgiy-portrait.png';
+
+const { alt, class: className = '', loading = 'lazy', sizes = '(max-width: 720px) 100vw, 420px' } = Astro.props;
+---
+<Picture
+  src={portrait}
+  alt={alt}
+  class={className}
+  formats={['avif', 'webp']}
+  fallbackFormat="png"
+  widths={[320, 640, 960]}
+  sizes={sizes}
+  loading={loading}
+  decoding="async"
+  quality={78}
+/>

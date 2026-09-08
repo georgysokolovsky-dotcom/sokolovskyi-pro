@@ -1,0 +1,12 @@
+---
+import { articleCardData } from '../lib/articles.js';
+
+const { article } = Astro.props;
+const data = articleCardData(article);
+---
+<a href={data.href} class="article-card">
+  <div class="article-card__meta"><span>{data.time} чтения</span><span aria-hidden="true">→</span></div>
+  <h3>{data.title}</h3>
+  <p>{data.description}</p>
+  <span class="article-card__more">Читать статью</span>
+</a>

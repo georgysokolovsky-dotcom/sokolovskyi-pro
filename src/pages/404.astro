@@ -1,0 +1,20 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import ArrowLink from '../components/ArrowLink.astro';
+import { robotsForPage } from '../lib/seo.js';
+---
+<BaseLayout title="Страница не найдена — PRO Мужчин" description="Запрошенная страница не найдена." robots={robotsForPage({ indexable: false })}>
+  <Header />
+  <main class="skeleton-page shell">
+    <Breadcrumbs items={[{ label: 'Главная', href: '/' }, { label: '404' }]} />
+    <p class="section-label">404</p>
+    <h1>Страница не найдена</h1>
+    <p class="skeleton-page__lead">Проверь адрес или вернись на главную страницу проекта.</p>
+    <div class="skeleton-page__rule"></div>
+    <div class="skeleton-page__grid"><div><h2>Продолжить чтение</h2><p>Открой статьи по ситуациям, которые сейчас ближе всего к тебе.</p></div><ArrowLink href="/">На главную</ArrowLink></div>
+  </main>
+  <Footer />
+</BaseLayout>

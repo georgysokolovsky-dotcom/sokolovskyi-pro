@@ -6,13 +6,27 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:astro": "astro dev",
+    "build:astro": "astro build",
+    "preview:astro": "astro preview",
+    "baseline": "node scripts/create-migration-baseline.mjs",
+    "migrate:articles": "node scripts/migrate-articles-to-astro.mjs",
+    "validate:content": "node scripts/validate-content.mjs",
+    "verify:migration": "node scripts/verify-content-migration.mjs",
+    "check:routes": "node scripts/check-routes.mjs",
+    "check:links": "node scripts/check-internal-links.mjs",
+    "check:public-boundary": "node scripts/check-public-boundary.mjs",
+    "check:seo": "node scripts/compare-astro-baseline.mjs"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "@vitejs/plugin-react": "^5.2.0",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "vite": "^7.3.6"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "astro": "^6.4.8",
+    "yaml": "^2.9.0"
+  }
 }

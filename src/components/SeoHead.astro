@@ -1,0 +1,35 @@
+---
+import { getImage } from 'astro:assets';
+import portrait from '../assets/images/georgiy-portrait.png';
+import { site } from '../data/site.js';
+
+const {
+  title,
+  description,
+  canonical = null,
+  robots = 'index, follow',
+  ogType = 'website',
+  ogImage = null,
+  ogImageAlt = title,
+  jsonLd = [],
+} = Astro.props;
+const absoluteCanonical = canonical ? new URL(canonical, `${site.origin}/`).toString() : null;
+const generatedPortrait = await getImage({ src: portrait, width: 1200, height: 1200, format: 'webp', quality: 80 });
+const resolvedOgImage = ogImage ?? new URL(generatedPortrait.src, `${site.origin}/`).toString();
+const schemas = Array.isArray(jsonLd) ? jsonLd.filter(Boolean) : [jsonLd].filter(Boolean);
+---
+<meta name="description" content={description} />
+<meta name="robots" content={robots} />
+{absoluteCanonical && <link rel="canonical" href={absoluteCanonical} />}
+<meta property="og:site_name" content={site.name} />
+<meta property="og:type" content={ogType} />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={absoluteCanonical ?? `${site.origin}/`} />
+<meta property="og:image" content={resolvedOgImage} />
+<meta property="og:image:alt" content={ogImageAlt} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={resolvedOgImage} />
+{schemas.map((schema) => <script type="application/ld+json" set:html={JSON.stringify(schema)} />)}

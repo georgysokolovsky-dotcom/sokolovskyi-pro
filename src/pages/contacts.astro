@@ -1,0 +1,22 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import PageIntro from '../components/PageIntro.astro';
+import ArticleCta from '../components/ArticleCta.astro';
+import { absoluteUrl } from '../lib/site-routes.js';
+import { buildBreadcrumbJsonLd } from '../lib/seo.js';
+
+const breadcrumbItems = [{ label: 'Контакты' }];
+---
+<BaseLayout title="Контакты — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/contacts/')} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+  <Header />
+  <main>
+    <PageIntro breadcrumbs={breadcrumbItems} title="Контакты" lead="По вопросам вебинара и дальнейшей работы начни с регистрации на бесплатный разговор." />
+    <section class="contact-section shell section-space">
+      <div><p class="section-label">Следующий шаг</p><h2>Сначала разберись в своей ситуации</h2><p>Регистрация проходит на существующей странице проекта. После заявки помощник уточняет ситуацию и возможный формат дальнейшей работы.</p><ArticleCta placement="contacts" articleId="contacts" topic="overview">Перейти к регистрации</ArticleCta></div>
+      <div class="contact-note"><span>Важно</span><p>На этом этапе сайт не собирает собственные заявки и не просит вводить здесь имя, телефон или почту.</p></div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>

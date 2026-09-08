@@ -1,0 +1,23 @@
+---
+import { getCollection, render } from 'astro:content';
+import ArticleLayout from '../../../layouts/ArticleLayout.astro';
+import { publishedArticles, findArticle } from '../../../lib/articles.js';
+import { validateArticleEntries } from '../../../lib/content-validation.js';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('articles');
+  validateArticleEntries(entries);
+  const published = publishedArticles(entries);
+  return Promise.all(published.map(async (entry) => ({
+    params: { slug: entry.data.slug },
+    props: {
+      entry,
+      Content: (await render(entry)).Content,
+      relatedArticles: entry.data.relatedArticles.map((slug) => findArticle(published, slug)),
+    },
+  })));
+}
+
+const { entry, Content, relatedArticles } = Astro.props;
+---
+<ArticleLayout entry={entry} Content={Content} relatedArticles={relatedArticles} />

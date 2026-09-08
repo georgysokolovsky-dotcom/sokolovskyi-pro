@@ -1,0 +1,40 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Header from '../../components/Header.astro';
+import Footer from '../../components/Footer.astro';
+import PageIntro from '../../components/PageIntro.astro';
+import ArticleCta from '../../components/ArticleCta.astro';
+import ArrowLink from '../../components/ArrowLink.astro';
+import WebinarBand from '../../components/WebinarBand.astro';
+import { pageMeta } from '../../data/pages.js';
+import { topicList } from '../../data/topics.js';
+import { articleCardData, publishedArticles, sortArticles } from '../../lib/articles.js';
+import { validateArticleEntries } from '../../lib/content-validation.js';
+import { absoluteUrl } from '../../lib/site-routes.js';
+import { buildBreadcrumbJsonLd } from '../../lib/seo.js';
+
+const entries = await getCollection('articles');
+validateArticleEntries(entries);
+const articles = sortArticles(publishedArticles(entries));
+const meta = pageMeta.articles;
+---
+<BaseLayout title={meta.title} description={meta.description} canonical={absoluteUrl('/articles/')} jsonLd={[buildBreadcrumbJsonLd([{ label: 'Статьи', href: '/articles/' }])]}>
+  <Header />
+  <main>
+    <PageIntro breadcrumbs={[{ label: 'Статьи' }]} title="Все статьи" lead="Материалы, которые помогают разобраться в ситуации, вернуть опору и выбрать следующий шаг." />
+    <section class="archive-layout shell section-space">
+      <div class="archive-list">
+        <div class="section-heading section-heading--line"><h2>Новые и опорные материалы</h2></div>
+        {articles.map((entry, index) => { const article = articleCardData(entry); return <a href={article.href} class="archive-row"><span class="archive-row__number">{String(index + 1).padStart(2, '0')}</span><div><h3>{article.title}</h3><p>{article.description}</p></div><span class="archive-row__time">{article.time} чтения</span></a>; })}
+      </div>
+      <aside class="archive-aside">
+        <p class="section-label">Навигация по темам</p><h2>С чего начать</h2>
+        {topicList.slice(0, 3).map((topic) => <a href={`/topics/${topic.slug}/`}>{topic.label}<span>→</span></a>)}
+        <div class="archive-aside__note">Статьи готовятся как самостоятельные ответы, а не только ради поисковой фразы.</div>
+      </aside>
+    </section>
+    <WebinarBand articleId="articles" topic="overview" />
+  </main>
+  <Footer />
+</BaseLayout>

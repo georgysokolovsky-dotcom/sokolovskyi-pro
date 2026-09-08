@@ -1,0 +1,27 @@
+---
+import { site } from '../data/site.js';
+
+const {
+  articleId = 'home',
+  topic = 'overview',
+  placement = 'footer',
+  searchIntent = '',
+  class: className = 'button button--accent',
+} = Astro.props;
+const allowedPlacement = site.webinarPlacements.includes(placement) ? placement : 'footer';
+const params = new URLSearchParams({
+  ...site.defaultWebinarParams,
+  utm_content: articleId,
+  article_id: articleId,
+  topic,
+  placement: allowedPlacement,
+});
+---
+<a
+  class={className}
+  href={`${site.webinarRoute}?${params.toString()}`}
+  data-article-id={articleId}
+  data-topic={topic}
+  data-search-intent={searchIntent}
+  data-placement={allowedPlacement}
+><slot>Записаться на бесплатный вебинар</slot></a>

@@ -1,0 +1,29 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Header from '../../components/Header.astro';
+import Footer from '../../components/Footer.astro';
+import PageIntro from '../../components/PageIntro.astro';
+import WebinarBand from '../../components/WebinarBand.astro';
+import { topicList } from '../../data/topics.js';
+import { publishedArticles } from '../../lib/articles.js';
+import { validateArticleEntries } from '../../lib/content-validation.js';
+import { absoluteUrl } from '../../lib/site-routes.js';
+import { buildBreadcrumbJsonLd } from '../../lib/seo.js';
+
+const entries = await getCollection('articles');
+validateArticleEntries(entries);
+const articles = publishedArticles(entries);
+const populatedTopics = topicList.filter((topic) => articles.some((entry) => entry.data.topic === topic.id));
+---
+<BaseLayout title="Темы — PRO Мужчин" description="Разделы PRO Мужчин по ситуациям, с которыми сталкиваются мужчины в кризисе отношений." canonical={absoluteUrl('/topics/')} jsonLd={[buildBreadcrumbJsonLd([{ label: 'Темы', href: '/topics/' }])]}>
+  <Header />
+  <main>
+    <PageIntro breadcrumbs={[{ label: 'Темы' }]} title="Темы" lead="Выбери ситуацию, которая сейчас ближе всего к тебе. Каждый раздел ведёт к связанным материалам." />
+    <section class="topic-directory shell section-space">
+      {populatedTopics.map((topic, index) => <a href={`/topics/${topic.slug}/`} class="directory-row"><span>0{index + 1}</span><div><h3>{topic.label}</h3><p>{topic.description}</p></div><b>↗</b></a>)}
+    </section>
+    <WebinarBand articleId="topics" topic="overview" />
+  </main>
+  <Footer />
+</BaseLayout>

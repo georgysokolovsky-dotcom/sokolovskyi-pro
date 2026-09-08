@@ -1,0 +1,9 @@
+---
+const { author, datePublished, dateModified } = Astro.props;
+const formatDate = (value) => value?.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+---
+<div class="article-meta">
+  <span>{author}</span>
+  {datePublished && <time datetime={datePublished.toISOString()}>Опубликовано {formatDate(datePublished)}</time>}
+  {dateModified && <time datetime={dateModified.toISOString()}>Обновлено {formatDate(dateModified)}</time>}
+</div>

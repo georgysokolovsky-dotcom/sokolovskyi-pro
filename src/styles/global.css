@@ -1,0 +1,132 @@
+@import '../styles.css';
+
+.breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumbs li + li::before {
+  content: '/';
+  margin-right: 8px;
+  color: var(--accent);
+}
+
+.breadcrumbs li:last-child {
+  color: inherit;
+}
+
+.mobile-menu {
+  display: none;
+}
+
+.article-prose > p:first-child {
+  max-width: 790px;
+  margin-bottom: 34px;
+  color: var(--ink);
+  font: 24px/1.35 var(--display);
+}
+
+.article-prose blockquote {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 16px;
+  align-items: center;
+  margin: 38px 0;
+  padding: 18px 20px 18px 16px;
+  border: 1px solid var(--accent);
+}
+
+.article-prose blockquote::before {
+  content: '◊';
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 35px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 22px;
+}
+
+.article-prose blockquote p {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.article-prose h2 + ul {
+  margin-bottom: 22px;
+}
+
+.article-prose a:not(.button) {
+  color: var(--accent-dark);
+  border-bottom: 1px solid rgba(142, 63, 47, .3);
+}
+
+.article-prose a[id] {
+  display: block;
+  height: 0;
+  border: 0;
+}
+
+.article-meta time {
+  display: inline-block;
+}
+
+.legal-status {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent-dark);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .site-header__inner > .main-nav {
+    display: none;
+  }
+
+  .mobile-menu {
+    display: block;
+    position: relative;
+  }
+
+  .mobile-menu > summary {
+    display: block;
+    list-style: none;
+  }
+
+  .mobile-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .mobile-menu[open] .main-nav {
+    display: flex;
+    position: absolute;
+    right: -19px;
+    top: 59px;
+    width: min(100vw, 420px);
+    padding: 25px 19px 31px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    background: var(--night);
+    border-top: 1px solid var(--light-line);
+  }
+
+  .mobile-menu[open] .main-nav > a {
+    padding: 15px 0;
+    border-bottom: 1px solid var(--light-line);
+  }
+
+  .mobile-menu[open] .main-nav .button {
+    margin-top: 17px;
+  }
+
+  .article-prose > p:first-child {
+    font-size: 22px;
+  }
+}

@@ -1,0 +1,33 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import PageIntro from '../components/PageIntro.astro';
+import { legalPages, legalStatus } from '../data/legal.js';
+import { absoluteUrl } from '../lib/site-routes.js';
+import { robotsForPage } from '../lib/seo.js';
+
+export function getStaticPaths() {
+  return Object.entries(legalPages).map(([page, data]) => ({ params: { legal: page }, props: { data } }));
+}
+
+const { legal } = Astro.params;
+const { data } = Astro.props;
+const breadcrumbItems = [{ label: 'Документы', href: '/editorial-policy/' }, { label: data.title }];
+---
+<BaseLayout title={`${data.title} — PRO Мужчин`} description={data.description} canonical={absoluteUrl(`/${legal}/`)} robots={robotsForPage({ legalStatus })}>
+  <Header />
+  <main>
+    <PageIntro breadcrumbs={breadcrumbItems} title={data.title} lead={data.description} />
+    <section class="legal-placeholder shell section-space">
+      <div class="legal-placeholder__mark">i</div>
+      <div>
+        <p class="section-label">Страница в каркасе</p>
+        <h2>Текст готовится к юридической проверке</h2>
+        <p>Перед публичным запуском здесь должны появиться актуальные условия для владельца сайта, региона аудитории и используемых сервисов. До проверки этот раздел не считается финальной юридической публикацией.</p>
+        <span class="legal-status">Статус: {legalStatus}</span>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>

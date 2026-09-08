@@ -1,0 +1,192 @@
+diff --git a/src/main.jsx b/src/main.jsx
+index 81f9a75..f600126 100644
+--- a/src/main.jsx
++++ b/src/main.jsx
+@@ -6,6 +6,9 @@ import './styles.css';
+ const portraitPath = '/images/georgiy-portrait.png';
+ const siteOrigin = 'https://sokolovskyi.pro';
+ const analyticsConsentKey = 'pro_muzhchin_analytics_consent';
++const analyticsConsentTtlMs = 12 * 30 * 24 * 60 * 60 * 1000;
++const webinarClickLogKey = 'pro_muzhchin_webinar_clicks';
++const webinarClickLogTtlMs = 90 * 24 * 60 * 60 * 1000;
+ const webinarTarget = import.meta.env.VITE_WEBINAR_TARGET_URL || 'https://gipnogeorge.com/web/neuromagic/devaluation_man';
+ const webinarParamKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'article_id', 'topic', 'placement'];
+ const webinarUtmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
+@@ -114,21 +117,36 @@ const articleTitles = {
+   'vosstanovit-sebya-posle-izmeny': 'Как восстановить себя и опору на будущее',
+ };
+
+-const legalPaths = ['/editorial-policy/', '/editorial-policy', '/privacy-policy/', '/privacy-policy', '/cookie-policy/', '/cookie-policy', '/personal-data-consent/', '/personal-data-consent', '/information-boundaries/', '/information-boundaries'];
++const legalPaths = ['/legal-notice/', '/legal-notice', '/editorial-policy/', '/editorial-policy', '/privacy-policy/', '/privacy-policy', '/cookie-policy/', '/cookie-policy', '/analytics-consent/', '/analytics-consent', '/personal-data-consent/', '/personal-data-consent', '/information-boundaries/', '/information-boundaries'];
+
+ let lastTrackedPage = '';
+
+-function hasAnalyticsConsent() {
++function readAnalyticsConsent() {
+   try {
+-    return window.localStorage.getItem(analyticsConsentKey) === 'granted';
++    const raw = window.localStorage.getItem(analyticsConsentKey);
++    if (!raw) return null;
++    const saved = JSON.parse(raw);
++    if (!saved || !['granted', 'denied'].includes(saved.choice) || !Number.isFinite(saved.savedAt)) {
++      window.localStorage.removeItem(analyticsConsentKey);
++      return null;
++    }
++    if (Date.now() - saved.savedAt > analyticsConsentTtlMs) {
++      window.localStorage.removeItem(analyticsConsentKey);
++      return null;
++    }
++    return saved.choice;
+   } catch {
+-    return false;
++    return null;
+   }
+ }
+
++function hasAnalyticsConsent() {
++  return readAnalyticsConsent() === 'granted';
++}
++
+ function updateAnalyticsConsent(choice) {
+   try {
+-    window.localStorage.setItem(analyticsConsentKey, choice);
++    window.localStorage.setItem(analyticsConsentKey, JSON.stringify({ choice, savedAt: Date.now() }));
+   } catch {
+     // Если localStorage недоступен, аналитика остаётся отключённой.
+   }
+@@ -142,10 +160,16 @@ function trackEvent(name, params = {}) {
+   window.gtag?.('event', name, params);
+ }
+
+-function trackPageView({ path, title, url }) {
++function trackPageView({ path }) {
+   if (!hasAnalyticsConsent() || lastTrackedPage === path) return;
+   lastTrackedPage = path;
+-  trackEvent('page_view', { page_title: title, page_location: url, page_path: path });
++  const article = approvedArticles[path.split('/')[2]];
++  const topic = path.startsWith('/topics/') ? path.split('/')[2] : article?.topic;
++  trackEvent('page_view', {
++    page_type: article ? 'article' : path.startsWith('/topics/') ? 'topic' : 'site',
++    ...(article?.id ? { article_id: article.id } : {}),
++    ...(topic ? { category: topic } : {}),
++  });
+ }
+
+ function navigate(path) {
+@@ -186,6 +210,7 @@ function readWebinarParams(search = window.location.search) {
+   webinarParamKeys.forEach((key) => {
+     const value = incoming.get(key);
+     if (!value || value.length > 120) return;
++    if (key.startsWith('utm_') && !/^[a-z0-9_-]{1,64}$/i.test(value)) return;
+     if (key === 'placement' && !webinarPlacements.has(value)) return;
+     params.set(key, value);
+   });
+@@ -196,7 +221,7 @@ function buildWebinarParams({ articleId, topic, placement }) {
+   const incoming = readWebinarParams();
+   const params = new URLSearchParams();
+   Object.keys(defaultWebinarParams).forEach((key) => params.set(key, incoming.get(key) || defaultWebinarParams[key]));
+-  params.set('utm_content', incoming.get('utm_content') || articleId);
++  params.set('utm_content', articleId);
+   params.set('article_id', articleId);
+   params.set('topic', topic);
+   params.set('placement', webinarPlacements.has(placement) ? placement : 'footer');
+@@ -204,15 +229,27 @@ function buildWebinarParams({ articleId, topic, placement }) {
+ }
+
+ function recordWebinarClick(params) {
++  if (!hasAnalyticsConsent()) return;
+   try {
+     const entry = Object.fromEntries(params.entries());
+     const signature = JSON.stringify(entry);
+-    const stored = JSON.parse(window.localStorage.getItem('pro_muzhchin_webinar_clicks') || '[]');
++    const cutoff = Date.now() - webinarClickLogTtlMs;
++    const stored = JSON.parse(window.localStorage.getItem(webinarClickLogKey) || '[]').filter((item) => {
++      const clickedAt = Date.parse(item?.clicked_at || '');
++      return Number.isFinite(clickedAt) && clickedAt >= cutoff;
++    });
+     const previous = stored[stored.length - 1];
+     if (previous?.signature === signature && Date.now() - new Date(previous.clicked_at).getTime() < 1500) return;
+     stored.push({ ...entry, signature, clicked_at: new Date().toISOString() });
+-    window.localStorage.setItem('pro_muzhchin_webinar_clicks', JSON.stringify(stored.slice(-50)));
+-    trackEvent('webinar_click', entry);
++    window.localStorage.setItem(webinarClickLogKey, JSON.stringify(stored.slice(-50)));
++    trackEvent('webinar_click', {
++      article_id: entry.article_id,
++      category: entry.topic,
++      placement: entry.placement,
++      utm_source: entry.utm_source,
++      utm_medium: entry.utm_medium,
++      utm_campaign: entry.utm_campaign,
++    });
+   } catch {
+     // Локальная фиксация клика не должна мешать переходу на регистрацию.
+   }
+@@ -232,21 +269,19 @@ function Header() {
+ }
+
+ function Footer() {
+-  return <footer className="site-footer"><div className="shell site-footer__inner"><BrandMark /><div className="site-footer__links"><Link href="/contacts/">Контакты</Link><Link href="/editorial-policy/">Редакционная политика</Link><Link href="/privacy-policy/">Политика конфиденциальности</Link><Link href="/cookie-policy/">Файлы cookie</Link></div><p className="site-footer__note">Материалы сайта помогают разобраться в ситуации. Они не заменяют медицинскую, юридическую или экстренную помощь.</p></div></footer>;
++  return <footer className="site-footer"><div className="shell site-footer__inner"><BrandMark /><div className="site-footer__links"><Link href="/contacts/">Контакты</Link><Link href="/legal-notice/">Правовая информация</Link><Link href="/editorial-policy/">Редакционная политика</Link><Link href="/privacy-policy/">Политика конфиденциальности</Link><Link href="/cookie-policy/">Файлы cookie</Link><button className="site-footer__cookie-settings" type="button" onClick={() => window.dispatchEvent(new Event('open-cookie-settings'))} aria-haspopup="dialog">Настройки cookie</button></div><p className="site-footer__note">Материалы сайта помогают разобраться в ситуации. Они не заменяют медицинскую, юридическую или экстренную помощь.</p></div></footer>;
+ }
+
+ function CookieConsent() {
+   const [visible, setVisible] = useState(false);
+
+   useEffect(() => {
+-    let choice = null;
+-    try {
+-      choice = window.localStorage.getItem(analyticsConsentKey);
+-    } catch {
+-      // При недоступном localStorage аналитика останется отключённой.
+-    }
++    const choice = readAnalyticsConsent();
+     if (choice) window.gtag?.('consent', 'update', { analytics_storage: choice === 'granted' ? 'granted' : 'denied' });
+     setVisible(!choice);
++    const openSettings = () => setVisible(true);
++    window.addEventListener('open-cookie-settings', openSettings);
++    return () => window.removeEventListener('open-cookie-settings', openSettings);
+   }, []);
+
+   if (!visible) return null;
+@@ -254,8 +289,8 @@ function CookieConsent() {
+   const choose = (choice) => {
+     updateAnalyticsConsent(choice);
+     if (choice === 'granted') {
+-      lastTrackedPage = window.location.pathname;
+-      trackEvent('page_view', { page_title: document.title, page_location: window.location.href, page_path: window.location.pathname });
++      lastTrackedPage = '';
++      trackPageView({ path: window.location.pathname });
+     }
+     setVisible(false);
+   };
+@@ -378,7 +413,7 @@ function RouteMeta({ path }) {
+     twitterTitle?.setAttribute('content', pageTitle);
+     twitterDescription?.setAttribute('content', pageDescription);
+     twitterImage?.setAttribute('content', articleImage);
+-    trackPageView({ path: canonicalPath, title: pageTitle, url: canonicalUrl });
++    trackPageView({ path: canonicalPath });
+   }, [path, article, topic]);
+   return null;
+ }
+@@ -392,7 +427,7 @@ function App() {
+   if (path.startsWith('/topics/vozvrashchenie')) return <><RouteMeta path={path} /><Header /><TopicCollectionPage topicSlug="vozvrashchenie" /></>;
+   if (path.startsWith('/topics/revnost')) return <><RouteMeta path={path} /><Header /><TopicCollectionPage topicSlug="revnost" /></>;
+   if (path.startsWith('/topics/deti-posle-razvoda')) return <><RouteMeta path={path} /><Header /><TopicCollectionPage topicSlug="deti-posle-razvoda" /></>;
+-  const route = <><RouteMeta path={path} />{path === '/' || path === '' ? <><Header /><HomePage /></> : null}{path === '/articles/' || path === '/articles' ? <><Header /><ArticlesIndexPage /></> : null}{path.startsWith('/articles/') && path !== '/articles/' && path !== '/articles' && !path.includes('/articles/kak-perezhit-izmenu-zheny/') ? <><Header /><ArticleStubPage title={articleTitles[path.split('/')[2]] || 'Материал по теме'} /></> : null}{path.startsWith('/articles/kak-perezhit-izmenu-zheny/') ? <><Header /><ArticlePage /></> : null}{path === '/topics/' || path === '/topics' ? <><Header /><TopicsIndexPage /></> : null}{path.startsWith('/topics/izmena-zheny') ? <><Header /><TopicPage /></> : null}{path.startsWith('/topics/') && !path.startsWith('/topics/izmena-zheny') && path !== '/topics/' && path !== '/topics' ? <><Header /><TopicStubPage topic={allTopics.find((item) => path.includes(`/${item.slug}`)) || allTopics[0]} /></> : null}{path === '/cases/' || path === '/cases' || path.startsWith('/cases/') ? <><Header /><CasesIndexPage /></> : null}{path === '/about/' || path === '/about' ? <><Header /><AboutPage /></> : null}{path === '/method/' || path === '/method' ? <><Header /><MethodPage /></> : null}{path === '/webinar/' || path === '/webinar' ? <><Header /><WebinarPage /></> : null}{path === '/contacts/' || path === '/contacts' ? <><Header /><ContactsPage /></> : null}{legalPaths.includes(path) ? <><Header /><LegalPage title={path.includes('privacy') ? 'Политика конфиденциальности' : path.includes('cookie') ? 'Политика использования файлов cookie' : path.includes('consent') ? 'Согласие на обработку персональных данных' : path.includes('boundaries') ? 'Границы информации на сайте' : 'Редакционная политика'} description="Правила сайта и использования материалов проекта." /></> : null}</>;
++  const route = <><RouteMeta path={path} />{path === '/' || path === '' ? <><Header /><HomePage /></> : null}{path === '/articles/' || path === '/articles' ? <><Header /><ArticlesIndexPage /></> : null}{path.startsWith('/articles/') && path !== '/articles/' && path !== '/articles' && !path.includes('/articles/kak-perezhit-izmenu-zheny/') ? <><Header /><ArticleStubPage title={articleTitles[path.split('/')[2]] || 'Материал по теме'} /></> : null}{path.startsWith('/articles/kak-perezhit-izmenu-zheny/') ? <><Header /><ArticlePage /></> : null}{path === '/topics/' || path === '/topics' ? <><Header /><TopicsIndexPage /></> : null}{path.startsWith('/topics/izmena-zheny') ? <><Header /><TopicPage /></> : null}{path.startsWith('/topics/') && !path.startsWith('/topics/izmena-zheny') && path !== '/topics/' && path !== '/topics' ? <><Header /><TopicStubPage topic={allTopics.find((item) => path.includes(`/${item.slug}`)) || allTopics[0]} /></> : null}{path === '/cases/' || path === '/cases' || path.startsWith('/cases/') ? <><Header /><CasesIndexPage /></> : null}{path === '/about/' || path === '/about' ? <><Header /><AboutPage /></> : null}{path === '/method/' || path === '/method' ? <><Header /><MethodPage /></> : null}{path === '/webinar/' || path === '/webinar' ? <><Header /><WebinarPage /></> : null}{path === '/contacts/' || path === '/contacts' ? <><Header /><ContactsPage /></> : null}{legalPaths.includes(path) ? <><Header /><LegalPage title={path.includes('legal-notice') ? 'Правовая информация' : path.includes('privacy') ? 'Политика конфиденциальности' : path.includes('cookie') ? 'Политика использования файлов cookie' : path.includes('consent') ? 'Согласие на использование аналитики' : path.includes('boundaries') ? 'Границы информации на сайте' : 'Редакционная политика'} description="Правила сайта и использования материалов проекта." /></> : null}</>;
+   const known = path === '/' || path === '' || path === '/articles/' || path === '/articles' || path.startsWith('/articles/') || path === '/topics/' || path === '/topics' || path.startsWith('/topics/') || path === '/cases/' || path === '/cases' || path.startsWith('/cases/') || path === '/about/' || path === '/about' || path === '/method/' || path === '/method' || path === '/webinar/' || path === '/webinar' || path === '/contacts/' || path === '/contacts' || legalPaths.includes(path);
+   return known ? route : <><Header /><NotFoundPage /></>;
+ }
+diff --git a/src/styles.css b/src/styles.css
+index e090e15..75a32a6 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -119,6 +119,8 @@ h3 { font-size: 20px; line-height: 1.18; }
+ .site-footer__inner { display: grid; grid-template-columns: 1fr 2fr; align-items: start; column-gap: 80px; row-gap: 24px; padding-top: 45px; padding-bottom: 46px; }
+ .site-footer__links { display: flex; flex-wrap: wrap; justify-content: end; gap: 16px 32px; color: rgba(230,227,220,.73); font-size: 13px; }
+ .site-footer__links a:hover { color: #fff; }
++.site-footer__cookie-settings { padding: 0; border: 0; color: inherit; background: transparent; font: inherit; font-size: inherit; cursor: pointer; }
++.site-footer__cookie-settings:hover { color: #fff; }
+ .site-footer__note { grid-column: 2; max-width: 540px; margin: 0; color: rgba(230,227,220,.48); font-size: 12px; line-height: 1.5; }
+
+ .breadcrumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 30px; color: var(--muted); font-size: 13px; }

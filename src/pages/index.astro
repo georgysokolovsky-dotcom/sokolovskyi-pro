@@ -1,0 +1,70 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import AuthorPortrait from '../components/AuthorPortrait.astro';
+import ArticleCard from '../components/ArticleCard.astro';
+import ArticleCta from '../components/ArticleCta.astro';
+import ArrowLink from '../components/ArrowLink.astro';
+import WebinarBand from '../components/WebinarBand.astro';
+import { pageMeta } from '../data/pages.js';
+import { topicList } from '../data/topics.js';
+import { buildPersonJsonLd, buildWebsiteJsonLd } from '../lib/seo.js';
+import { publishedArticles, sortArticles } from '../lib/articles.js';
+import { validateArticleEntries, validateStaticCanonicals } from '../lib/content-validation.js';
+import { absoluteUrl } from '../lib/site-routes.js';
+
+const entries = await getCollection('articles');
+validateArticleEntries(entries);
+validateStaticCanonicals();
+const articles = sortArticles(publishedArticles(entries));
+const topicLinks = topicList.slice(0, 3);
+const meta = pageMeta.home;
+---
+<BaseLayout title={meta.title} description={meta.description} canonical={absoluteUrl('/')} jsonLd={[buildWebsiteJsonLd(), buildPersonJsonLd()]}>
+  <Header />
+  <main>
+    <section class="hero hero--home">
+      <div class="shell hero__inner">
+        <div class="hero__copy">
+          <h1>Когда отношения рушатся, важно не потерять себя</h1>
+          <p class="hero__lead">Помогаю мужчинам выйти из кризиса после измены, предательства или развода и снова стать уверенными в себе.</p>
+          <div class="hero__actions">
+            <ArticleCta placement="hero" articleId="home" topic="overview">Посмотреть вебинар</ArticleCta>
+            <a class="text-link text-link--light" href="#start">Найти нужную тему <span>↓</span></a>
+          </div>
+        </div>
+        <div class="hero__portrait">
+          <AuthorPortrait alt="Георгий Соколовский — ментор для мужчин" loading="eager" sizes="(max-width: 720px) 100vw, 500px" />
+          <div class="portrait-caption">Георгий Соколовский<br /><span>ментор для мужчин</span></div>
+        </div>
+      </div>
+    </section>
+    <section class="topics-index shell section-space" id="start">
+      <div class="section-heading section-heading--line"><h2>С чего начать</h2><p>Выбери ситуацию, которая сейчас ближе всего к твоей.</p></div>
+      <div class="topic-links">
+        {topicLinks.map((topic, index) => <a href={`/topics/${topic.slug}/`} class="topic-link"><span>0{index + 1}</span>{topic.label}<b>↗</b></a>)}
+      </div>
+    </section>
+    <section class="articles-preview shell section-space">
+      <div class="section-heading">
+        <div><p class="section-label">Редакция PRO Мужчин</p><h2>Статьи, которые помогают разобраться</h2></div>
+        <ArrowLink href="/articles/">Все статьи</ArrowLink>
+      </div>
+      <div class="article-grid">{articles.slice(0, 4).map((article) => <ArticleCard article={article} />)}</div>
+    </section>
+    <section class="author-intro shell section-space">
+      <div class="author-intro__image"><AuthorPortrait alt="Портрет Георгия Соколовского" sizes="(max-width: 720px) 100vw, 380px" /></div>
+      <div class="author-intro__copy">
+        <p class="section-label">Об авторе</p>
+        <h2>Георгий Соколовский — ментор для мужчин</h2>
+        <p>Помогаю мужчинам выйти из кризиса после измены, предательства или развода и снова стать уверенными в себе.</p>
+        <p>В работе мы разбираем не только то, что делает партнёрша. Главное — вернуть тебе способность спокойно думать, говорить и принимать решения.</p>
+        <ArrowLink href="/about/">Познакомиться с подходом</ArrowLink>
+      </div>
+    </section>
+    <WebinarBand articleId="home" topic="overview" />
+  </main>
+  <Footer />
+</BaseLayout>

@@ -1,0 +1,13 @@
+---
+import Breadcrumbs from './Breadcrumbs.astro';
+
+const { breadcrumbs = [], title, lead, dark = false } = Astro.props;
+---
+<section class={`page-intro ${dark ? 'page-intro--dark' : ''}`}>
+  <div class="shell">
+    {breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
+    <h1>{title}</h1>
+    {lead && <p class="page-intro__lead">{lead}</p>}
+    <slot />
+  </div>
+</section>

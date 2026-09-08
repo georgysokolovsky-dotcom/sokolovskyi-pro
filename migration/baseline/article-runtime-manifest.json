@@ -1,0 +1,585 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-07T15:47:21.591Z",
+  "cta": {
+    "targetRoute": "/go/webinar",
+    "targetOrigin": "https://gipnogeorge.com/web/neuromagic/devaluation_man",
+    "placementsObserved": [
+      "hero",
+      "inline",
+      "footer",
+      "header",
+      "webinar",
+      "contacts",
+      "skeleton"
+    ],
+    "utm": {
+      "utm_source": "seo",
+      "utm_medium": "article",
+      "utm_campaign": "mens_webinar",
+      "utm_content": "article id",
+      "article_id": "article id",
+      "topic": "article topic",
+      "placement": "CTA placement"
+    },
+    "note": "The runtime query whitelist and builder remain in src/main.jsx until later migration stages."
+  },
+  "articles": [
+    {
+      "id": "article_0001",
+      "slug": "kak-perezhit-izmenu-zheny",
+      "topic": "izmena",
+      "category": "Измена жены",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Что делать в первые дни после измены жены",
+          "/articles/chto-delat-v-pervye-dni-posle-izmeny/"
+        ],
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ],
+        [
+          "Пауза после измены: зачем она нужна и как её выдержать",
+          "/articles/pauza-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Что происходит в первые недели",
+          "first-weeks"
+        ],
+        [
+          "Какие действия только ухудшают ситуацию",
+          "mistakes"
+        ],
+        [
+          "Порядок действий",
+          "steps"
+        ]
+      ],
+      "socialImage": "/images/social/article_0001-social.svg"
+    },
+    {
+      "id": "article_0002",
+      "slug": "chto-delat-v-pervye-dni-posle-izmeny",
+      "topic": "izmena",
+      "category": "Измена жены",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как мужчине пережить измену жены и сохранить себя",
+          "/articles/kak-perezhit-izmenu-zheny/"
+        ],
+        [
+          "Пауза после измены: зачем она нужна и как её выдержать",
+          "/articles/pauza-posle-izmeny/"
+        ],
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Что сделать в первые сутки",
+          "first-day"
+        ],
+        [
+          "Отдели факты от догадок",
+          "facts"
+        ],
+        [
+          "Чего лучше не делать",
+          "mistakes"
+        ],
+        [
+          "Как подготовить первый разговор",
+          "conversation"
+        ]
+      ],
+      "socialImage": "/images/social/article_0002-social.svg"
+    },
+    {
+      "id": "article_0003",
+      "slug": "razgovor-s-zhenoy-posle-izmeny",
+      "topic": "izmena",
+      "category": "Измена жены",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как мужчине пережить измену жены и сохранить себя",
+          "/articles/kak-perezhit-izmenu-zheny/"
+        ],
+        [
+          "Пауза после измены: зачем она нужна и как её выдержать",
+          "/articles/pauza-posle-izmeny/"
+        ],
+        [
+          "Что делать в первые дни после измены жены",
+          "/articles/chto-delat-v-pervye-dni-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Перед разговором",
+          "before"
+        ],
+        [
+          "Какие вопросы задать",
+          "questions"
+        ],
+        [
+          "Как говорить о себе",
+          "self"
+        ],
+        [
+          "Где поставить границу",
+          "boundary"
+        ]
+      ],
+      "socialImage": "/images/social/article_0003-social.svg"
+    },
+    {
+      "id": "article_0006",
+      "slug": "pauza-posle-izmeny",
+      "topic": "izmena",
+      "category": "Измена жены",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как мужчине пережить измену жены и сохранить себя",
+          "/articles/kak-perezhit-izmenu-zheny/"
+        ],
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ],
+        [
+          "Что делать в первые дни после измены жены",
+          "/articles/chto-delat-v-pervye-dni-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Когда пауза действительно помогает",
+          "why"
+        ],
+        [
+          "Чем пауза отличается от наказания",
+          "punishment"
+        ],
+        [
+          "Что делать во время паузы",
+          "during"
+        ],
+        [
+          "Как договориться о сроке",
+          "deadline"
+        ]
+      ],
+      "socialImage": "/images/social/article_0006-social.svg"
+    },
+    {
+      "id": "article_0007",
+      "slug": "kak-perezhit-razvod",
+      "topic": "razvod",
+      "category": "Развод и расставание",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как сохранить контакт с детьми после развода",
+          "/articles/sohranit-kontakt-s-detmi-posle-razvoda/"
+        ],
+        [
+          "Жена ушла и хочет вернуться: что обсудить до решения",
+          "/articles/zhena-ushla-i-hochet-vernutsya/"
+        ],
+        [
+          "Как восстановить уверенность после предательства",
+          "/articles/vosstanovit-uverennost-posle-predatelstva/"
+        ]
+      ],
+      "summary": [
+        [
+          "Сначала собери ближайшую опору",
+          "support"
+        ],
+        [
+          "Отдели развод от оценки себя",
+          "self"
+        ],
+        [
+          "Если есть дети",
+          "children"
+        ],
+        [
+          "Что делать с желанием всё вернуть",
+          "return"
+        ]
+      ],
+      "socialImage": "/images/social/article_0007-social.svg"
+    },
+    {
+      "id": "article_0004",
+      "slug": "prostit-ili-uyti-posle-izmeny",
+      "topic": "izmena",
+      "category": "Измена жены",
+      "searchIntent": "decision support",
+      "related": [
+        [
+          "Как мужчине пережить измену жены и сохранить себя",
+          "/articles/kak-perezhit-izmenu-zheny/"
+        ],
+        [
+          "Как восстановить доверие после измены",
+          "/articles/vosstanovit-doverie-posle-izmeny/"
+        ],
+        [
+          "Пауза после измены: зачем она нужна и как её выдержать",
+          "/articles/pauza-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "На какой вопрос ты отвечаешь",
+          "question"
+        ],
+        [
+          "Как сравнить два варианта",
+          "compare"
+        ],
+        [
+          "Если ты пока не готов решить",
+          "pause"
+        ]
+      ],
+      "socialImage": "/images/social/article_0004-social.svg"
+    },
+    {
+      "id": "article_0005",
+      "slug": "vosstanovit-doverie-posle-izmeny",
+      "topic": "izmena",
+      "category": "Измена жены",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ],
+        [
+          "Простить или уйти после измены: как принять своё решение",
+          "/articles/prostit-ili-uyti-posle-izmeny/"
+        ],
+        [
+          "Пауза после измены: зачем она нужна и как её выдержать",
+          "/articles/pauza-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Доверие — это не постоянный контроль",
+          "control"
+        ],
+        [
+          "Что нужно обсудить",
+          "agreements"
+        ],
+        [
+          "Что мешает восстановлению",
+          "mistakes"
+        ]
+      ],
+      "socialImage": "/images/social/article_0005-social.svg"
+    },
+    {
+      "id": "article_0008",
+      "slug": "skazat-detyam-o-razvode",
+      "topic": "deti-posle-razvoda",
+      "category": "Дети после развода",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как мужчине пережить развод и не сломаться",
+          "/articles/kak-perezhit-razvod/"
+        ],
+        [
+          "Как сохранить контакт с детьми после развода",
+          "/articles/sohranit-kontakt-s-detmi-posle-razvoda/"
+        ],
+        [
+          "Как общаться с бывшей женой после развода",
+          "/articles/obshchatsya-s-byvshey-posle-razvoda/"
+        ]
+      ],
+      "summary": [
+        [
+          "Что ребёнку важно услышать",
+          "say"
+        ],
+        [
+          "Чего не нужно говорить",
+          "avoid"
+        ],
+        [
+          "После разговора важнее действия",
+          "after"
+        ]
+      ],
+      "socialImage": "/images/social/article_0008-social.svg"
+    },
+    {
+      "id": "article_0009",
+      "slug": "obshchatsya-s-byvshey-posle-razvoda",
+      "topic": "razvod",
+      "category": "Развод и расставание",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как мужчине пережить развод и не сломаться",
+          "/articles/kak-perezhit-razvod/"
+        ],
+        [
+          "Как сохранить контакт с детьми после развода",
+          "/articles/sohranit-kontakt-s-detmi-posle-razvoda/"
+        ],
+        [
+          "Как сказать детям о разводе и не втянуть их в конфликт",
+          "/articles/skazat-detyam-o-razvode/"
+        ]
+      ],
+      "summary": [
+        [
+          "Определи, о чём вы общаетесь",
+          "topics"
+        ],
+        [
+          "Формулируй одну задачу",
+          "message"
+        ],
+        [
+          "Если разговор снова превращается в конфликт",
+          "conflict"
+        ]
+      ],
+      "socialImage": "/images/social/article_0009-social.svg"
+    },
+    {
+      "id": "article_0010",
+      "slug": "sohranit-kontakt-s-detmi-posle-razvoda",
+      "topic": "deti-posle-razvoda",
+      "category": "Дети после развода",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как мужчине пережить развод и не сломаться",
+          "/articles/kak-perezhit-razvod/"
+        ],
+        [
+          "Как сказать детям о разводе и не втянуть их в конфликт",
+          "/articles/skazat-detyam-o-razvode/"
+        ],
+        [
+          "Как общаться с бывшей женой после развода",
+          "/articles/obshchatsya-s-byvshey-posle-razvoda/"
+        ]
+      ],
+      "summary": [
+        [
+          "Отдели главное от конфликта взрослых",
+          "conflict"
+        ],
+        [
+          "Делай контакт предсказуемым",
+          "regularity"
+        ],
+        [
+          "Что делать с чувством вины",
+          "guilt"
+        ]
+      ],
+      "socialImage": "/images/social/article_0010-social.svg"
+    },
+    {
+      "id": "article_0011",
+      "slug": "stoit-li-vozvrashchat-zhenu",
+      "topic": "vozvrashchenie",
+      "category": "Возвращение женщины",
+      "searchIntent": "decision support",
+      "related": [
+        [
+          "Жена ушла и хочет вернуться: что обсудить до решения",
+          "/articles/zhena-ushla-i-hochet-vernutsya/"
+        ],
+        [
+          "Как понять, можно ли восстановить отношения",
+          "/articles/vosstanovit-otnosheniya-posle-razryva/"
+        ],
+        [
+          "Как восстановить доверие после измены",
+          "/articles/vosstanovit-doverie-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Что проверить в себе",
+          "self"
+        ],
+        [
+          "Что должно быть с её стороны",
+          "mutual"
+        ],
+        [
+          "Как предложить разговор",
+          "conversation"
+        ]
+      ],
+      "socialImage": "/images/social/article_0011-social.svg"
+    },
+    {
+      "id": "article_0012",
+      "slug": "zhena-ushla-i-hochet-vernutsya",
+      "topic": "vozvrashchenie",
+      "category": "Возвращение женщины",
+      "searchIntent": "decision support",
+      "related": [
+        [
+          "Стоит ли пытаться вернуть жену после расставания",
+          "/articles/stoit-li-vozvrashchat-zhenu/"
+        ],
+        [
+          "Как понять, можно ли восстановить отношения",
+          "/articles/vosstanovit-otnosheniya-posle-razryva/"
+        ],
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Что спросить до совместного решения",
+          "questions"
+        ],
+        [
+          "Не путай возвращение с доверием",
+          "trust"
+        ],
+        [
+          "Как не торопить процесс",
+          "pace"
+        ]
+      ],
+      "socialImage": "/images/social/article_0012-social.svg"
+    },
+    {
+      "id": "article_0013",
+      "slug": "vosstanovit-otnosheniya-posle-razryva",
+      "topic": "vozvrashchenie",
+      "category": "Возвращение женщины",
+      "searchIntent": "decision support",
+      "related": [
+        [
+          "Стоит ли пытаться вернуть жену после расставания",
+          "/articles/stoit-li-vozvrashchat-zhenu/"
+        ],
+        [
+          "Жена ушла и хочет вернуться: что обсудить до решения",
+          "/articles/zhena-ushla-i-hochet-vernutsya/"
+        ],
+        [
+          "Как восстановить доверие после измены",
+          "/articles/vosstanovit-doverie-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Четыре вопроса для проверки",
+          "questions"
+        ],
+        [
+          "Признаки, что разговор имеет смысл",
+          "signs"
+        ],
+        [
+          "Как начать разговор",
+          "start"
+        ]
+      ],
+      "socialImage": "/images/social/article_0013-social.svg"
+    },
+    {
+      "id": "article_0014",
+      "slug": "perestat-proveryat-telefon-zheny",
+      "topic": "revnost",
+      "category": "Ревность и контроль",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Ревность и подозрения: что делать, когда не получается остановиться",
+          "/articles/revnost-i-podozreniya-chto-delat/"
+        ],
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ],
+        [
+          "Как восстановить доверие после измены",
+          "/articles/vosstanovit-doverie-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Как устроен цикл",
+          "cycle"
+        ],
+        [
+          "Что сделать в момент желания проверить",
+          "urge"
+        ],
+        [
+          "Договорённости вместо слежки",
+          "agreements"
+        ]
+      ],
+      "socialImage": "/images/social/article_0014-social.svg"
+    },
+    {
+      "id": "article_0015",
+      "slug": "revnost-i-podozreniya-chto-delat",
+      "topic": "revnost",
+      "category": "Ревность и контроль",
+      "searchIntent": "informational",
+      "related": [
+        [
+          "Как перестать проверять телефон жены",
+          "/articles/perestat-proveryat-telefon-zheny/"
+        ],
+        [
+          "Разговор с женой после измены: как получить ясность",
+          "/articles/razgovor-s-zhenoy-posle-izmeny/"
+        ],
+        [
+          "Как восстановить доверие после измены",
+          "/articles/vosstanovit-doverie-posle-izmeny/"
+        ]
+      ],
+      "summary": [
+        [
+          "Раздели факт и догадку",
+          "facts"
+        ],
+        [
+          "Что делать до разговора",
+          "before"
+        ],
+        [
+          "Как говорить о подозрении",
+          "conversation"
+        ]
+      ],
+      "socialImage": "/images/social/article_0015-social.svg"
+    }
+  ]
+}

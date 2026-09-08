@@ -1,0 +1,29 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import PageIntro from '../components/PageIntro.astro';
+import WebinarBand from '../components/WebinarBand.astro';
+import { absoluteUrl } from '../lib/site-routes.js';
+import { buildBreadcrumbJsonLd } from '../lib/seo.js';
+
+const breadcrumbItems = [{ label: 'Подход' }];
+---
+<BaseLayout title="Подход к работе — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/method/')} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+  <Header />
+  <main>
+    <PageIntro breadcrumbs={breadcrumbItems} title="Подход к работе" lead="Разбираем не только то, что делает партнёрша. Смотрим, что происходит с тобой, какие действия усиливают проблему и какое решение ты действительно готов принять." />
+    <section class="method-grid shell section-space">
+      <div class="method-intro"><p class="section-label">Как устроена работа</p><h2>От реакции — к ясному решению</h2><p>Цель работы — вернуть управление своими действиями, снизить эмоциональную реактивность, выстроить личные границы и спокойнее увидеть будущее отношений.</p></div>
+      <div class="method-list">
+        <div><span>01</span><div><h3>Состояние</h3><p>Замечаем, что происходит с тобой в момент боли, страха или унижения.</p></div></div>
+        <div><span>02</span><div><h3>Сценарии</h3><p>Разбираем повторяющиеся реакции и установки, которые влияют на решения.</p></div></div>
+        <div><span>03</span><div><h3>Действия</h3><p>Отделяем импульсивные шаги от того, что возвращает тебе опору и границы.</p></div></div>
+        <div><span>04</span><div><h3>Разговор</h3><p>Готовимся к сложному разговору и выбираем следующий шаг без обещаний за другого человека.</p></div></div>
+      </div>
+    </section>
+    <section class="method-note shell"><p>После работы мужчина может решить восстанавливать текущие отношения, завершать их или строить новые. Конкретный исход заранее не гарантируется.</p></section>
+    <WebinarBand articleId="method" topic="overview" />
+  </main>
+  <Footer />
+</BaseLayout>
