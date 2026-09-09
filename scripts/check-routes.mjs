@@ -4,7 +4,7 @@ import { join } from 'node:path';
 const root = process.cwd();
 const dist = join(root, 'dist');
 const exists = async (path) => access(path).then(() => true).catch(() => false);
-const routeFile = (path) => join(dist, path === '/' ? 'index.html' : path === '/404' ? '404.html' : path === '/go/webinar' ? 'go/webinar' : path.replace(/^\//, '') + 'index.html');
+const routeFile = (path) => join(dist, path === '/' ? 'index.html' : path === '/404' ? '404.html' : path === '/go/webinar' ? 'go/webinar/index.html' : path.replace(/^\//, '') + 'index.html');
 const required = ['/', '/about/', '/method/', '/webinar/', '/articles/', '/topics/', '/contacts/', '/editorial-policy/', '/privacy-policy/', '/cookie-policy/', '/personal-data-consent/', '/information-boundaries/', '/go/webinar', '/404'];
 const baseline = JSON.parse(await readFile(join(root, 'migration/baseline/route-manifest.json'), 'utf8'));
 const errors = [];

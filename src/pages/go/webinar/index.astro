@@ -33,6 +33,6 @@ const allowedKeys = JSON.stringify(site.webinarParamKeys);
       <p>Если переход не продолжился автоматически, используй ссылку ниже.</p>
       <a id="webinar-fallback" href={site.webinarTarget}>Открыть страницу вебинара</a>
     </main>
-    <script is:inline set:html={`const keys=${allowedKeys};const link=document.querySelector('#webinar-fallback');if(link){const source=new URLSearchParams(window.location.search);const destination=new URL(link.href);keys.forEach((key)=>{const value=source.get(key);if(value&&value.length<=120)destination.searchParams.set(key,value)});link.href=destination.toString()}`} />
+    <script is:inline set:html={`const keys=${allowedKeys};const link=document.querySelector('#webinar-fallback');if(link){const source=new URLSearchParams(window.location.search);const destination=new URL(link.href);keys.forEach((key)=>{const value=source.get(key);if(value&&value.length<=120)destination.searchParams.set(key,value)});link.href=destination.toString();window.location.replace(link.href)}`} />
   </body>
 </html>
