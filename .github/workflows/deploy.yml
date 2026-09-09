@@ -31,10 +31,7 @@ jobs:
         run: npm ci
 
       - name: Build site
-        run: npm run build
-
-      - name: Prepare static route entry points
-        run: node scripts/prepare-pages.mjs
+        run: npm run build:astro
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
