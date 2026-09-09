@@ -168,6 +168,11 @@ export class MemoryStore {
     return { event: clone(event), duplicate: false };
   }
 
+  findEventByIdempotencyKey(funnelId, idempotencyKey) {
+    if (!idempotencyKey) return null;
+    return clone(this.events.find((event) => event.funnelId === funnelId && event.idempotencyKey === idempotencyKey) ?? null);
+  }
+
   listUserEvents(userId) {
     return clone(this.events.filter((event) => event.userId === userId));
   }

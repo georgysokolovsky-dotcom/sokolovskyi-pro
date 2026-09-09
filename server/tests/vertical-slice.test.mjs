@@ -144,6 +144,8 @@ test('happy path keeps the approved event model from Telegram Start through CRM 
     'funnel_entry_notice_presented',
     'bonus_delivery_attempted',
     'bonus_sent',
+    'webinar_invite_delivery_attempted',
+    'webinar_invite_sent',
     'webinar_page_view',
     'webinar_started',
     'watched_25',
@@ -192,6 +194,48 @@ test('bonus failure records attempted and failed without claiming sent', async (
     'bonus_delivery_failed',
   ]);
   assert.equal(lead.body.lead.bonus.status, 'failed');
+  assert.equal(started.body.webinar, null);
+  assert.equal(started.body.webinarInviteDelivery.status, 'not_started');
+});
+
+test('entry notice failure stops the remaining message sequence', async (t) => {
+  const sentRoles = [];
+  const server = await makeTestServer({
+    transport: createDevTelegramTransport({
+      sendMessage: async ({ message }) => {
+        sentRoles.push(message.role);
+        return { ok: false, errorCode: 'notice_failure' };
+      },
+    }),
+  });
+  t.after(() => server.app.close());
+
+  const started = await start(server, { telegramUserId: 223, updateId: 22 });
+  assert.equal(started.body.notice.status, 'failed');
+  assert.equal(started.body.bonusDelivery.status, 'not_started');
+  assert.equal(started.body.webinarInviteDelivery.status, 'not_started');
+  assert.deepEqual(sentRoles, ['entry_notice']);
+  assert.deepEqual(server.store.events.map((item) => item.eventType), ['telegram_start']);
+});
+
+test('webinar invite failure is recorded without claiming invite sent', async (t) => {
+  const server = await makeTestServer({
+    transport: createDevTelegramTransport({
+      sendMessage: async ({ message }) => message.role === 'webinar_invite'
+        ? { ok: false, errorCode: 'invite_failure' }
+        : { ok: true, messageId: `dev-${message.role}` },
+    }),
+  });
+  t.after(() => server.app.close());
+
+  const started = await start(server, { telegramUserId: 224, updateId: 23 });
+  assert.equal(started.body.bonusDelivery.status, 'sent');
+  assert.equal(started.body.webinarInviteDelivery.status, 'failed');
+  assert.deepEqual(server.store.events.map((item) => item.eventType).slice(-2), [
+    'webinar_invite_delivery_attempted',
+    'webinar_invite_delivery_failed',
+  ]);
+  assert.equal(server.store.events.some((item) => item.eventType === 'webinar_invite_sent'), false);
 });
 
 test('first touch is immutable and direct entry has nullable article slug', async (t) => {

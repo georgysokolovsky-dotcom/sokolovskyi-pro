@@ -72,10 +72,11 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
         });
         return sendJson(response, 200, {
           ok: true,
-          userId: result.userId,
           duplicate: result.duplicate,
           bonusId: result.bonus?.id ?? null,
+          noticeStatus: result.notice.status,
           bonusStatus: result.bonusDelivery.status,
+          webinarInviteStatus: result.webinarInviteDelivery.status,
         });
       }
 

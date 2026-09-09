@@ -10,6 +10,8 @@
     "dev:astro": "astro dev",
     "build:astro": "astro build",
     "preview:astro": "astro preview",
+    "test:funnel": "npm --prefix server test",
+    "start:funnel": "npm --prefix server start",
     "baseline": "node scripts/create-migration-baseline.mjs",
     "migrate:articles": "node scripts/migrate-articles-to-astro.mjs",
     "validate:content": "node scripts/validate-content.mjs",

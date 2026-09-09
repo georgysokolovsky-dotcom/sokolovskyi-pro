@@ -64,6 +64,17 @@ export const localFixture = Object.freeze({
   ],
   messageTemplates: [
     {
+      id: 'df0f2c2e-9f82-4f2a-9a83-2d7e8a6f1012',
+      funnelId: FUNNEL_ID,
+      name: 'entry_notice',
+      role: 'entry_notice',
+      messageClass: 'funnel_service',
+      text: 'Вы получите бонус, ссылку на видеоразбор и сообщения по материалам этой программы. Команда /stop остановит дальнейшие сообщения.',
+      buttons: [],
+      status: 'active',
+      version: 1,
+    },
+    {
       id: '6f0f2c2e-9f82-4f2a-9a83-2d7e8a6f1005',
       funnelId: FUNNEL_ID,
       name: 'podcast_bonus_intro',

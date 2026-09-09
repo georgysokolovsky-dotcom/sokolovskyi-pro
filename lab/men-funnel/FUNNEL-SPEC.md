@@ -54,7 +54,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `server/migrations/001_core.sql` — целевая схема PostgreSQL, пока не подключённая локально;
 - `server/tests/vertical-slice.test.mjs` — проверка пути от Telegram Start до application.
 
-Сейчас server не вызывает Telegram Bot API. Token бота, webhook secret и signing secret в репозитории не хранятся. Реальный видеоматериал не подключён.
+В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Реальный видеоматериал не подключён.
 
 ### Конфигурация первой версии
 
@@ -272,8 +272,8 @@ Telegram webhook принимает update только после провер�
 4. сохраняет `funnel_entry_touch` для `men_webinar_v1`, если пользователь входит в эту funnel впервые;
 5. создаёт или обновляет Telegram profile — имя, username, язык и timestamps;
 6. создаёт событие `telegram_start`;
-7. записывает версию входного notice/request, timestamp, source и `funnel_id`;
-8. начинает процесс delivery bonus.
+7. отправляет entry notice; после подтверждения transport записывает его версию, timestamp, source и `funnel_id`;
+8. после успешного entry notice начинает delivery bonus, затем выдаёт signed webinar URL и отправляет invite.
 
 Минимальная запись Telegram profile:
 
@@ -327,6 +327,8 @@ start_parameter
 - создавать дубликат события `telegram_start`.
 
 Текущий server использует ключи событий вида `telegram-update:<update_id>` и локальный тестовый endpoint `/v1/test/telegram/start`.
+
+Защита хранится в `MemoryStore`. Она работает для последовательных и одновременных дублей внутри одного процесса, но теряется после restart. Persistent idempotency отложена до следующего vertical slice.
 
 ### Команды управления
 
@@ -383,7 +385,7 @@ use_case: follow_up
 
 `bonus_sent` означает только успешный ответ Telegram API на отправку. Он не означает, что человек прочитал, открыл, прослушал или понял bonus.
 
-В local fixture message plan показывает, что будет отправлено. Поскольку Bot API token пока не подключён, план не считается фактическим событием `bonus_sent`.
+В local fixture dev transport эмулирует принятие сообщения без сети. В тестах in-process fake Bot API принимает реальный HTTP payload. `bonus_sent` создаётся только после успешного нормализованного ответа transport.
 
 ### Итоговые bonus events
 
@@ -414,7 +416,7 @@ occurred_at
 
 Каждая реальная попытка имеет свой idempotency key. Успешная отправка конкретной версии входного bonus не повторяется из-за повторной доставки webhook. Неуспешная попытка может быть повторена по правилу retry, но повтор не маскируется под первую попытку.
 
-Текущий prototype/server ещё использует прежнее имя события для автоматической фиксации bonus. Это legacy-разрыв между текущим кодом и подтверждённой target-моделью; на этом этапе код не меняется.
+Текущий server использует подтверждённую модель `bonus_delivery_attempted` → `bonus_sent` или `bonus_delivery_failed`; прежнее событие `bonus_received` не используется.
 
 ## D. Warming sequence
 
@@ -596,7 +598,7 @@ Webinar token не принимается application endpoint автомати�
 4. Follow-up к application использует только application token.
 5. Raw token не попадает в логи, CRM timeline или analytics.
 
-Текущая реализация использует один HMAC token со scope `video` и передаёт его также в application. Это зафиксированный технический разрыв; target v1 требует разделения purpose, код пока не изменяется.
+Текущая реализация выдаёт отдельные HMAC token с purpose `webinar` и `application`. Webinar token не принимается application endpoint, application token не открывает webinar session.
 
 ### Lab webinar
 
@@ -616,6 +618,8 @@ lab://men-funnel/video/lab-men-funnel-video-fixture?t=<webinar_token>
 ```
 
 Это fixture и не доказательство работы реального видеопровайдера.
+
+Base URL для local/test HTTP-проверки задаётся через `WEBINAR_BASE_URL`. Если он не задан, сохраняется `lab://` reference. Production URL не установлен; полная signed URL не логируется.
 
 ### Проверка доступа
 
@@ -854,7 +858,7 @@ traffic source
 | Событие | Кто/что создаёт | Обязательный контекст |
 |---|---|---|
 | `telegram_start` | Telegram webhook | `telegram_user_id`, `source_id`, `funnel_id`, `start_parameter` |
-| `funnel_entry_notice_presented` | entry flow | `consent_or_request_version`, timestamp, source, `funnel_id` |
+| `funnel_entry_notice_presented` | transport подтвердил отправку entry notice | `consent_or_request_version`, timestamp, source, `funnel_id` |
 | `telegram_stop` | команда `/stop` | `telegram_user_id`, `funnel_id`, timestamp |
 | `data_deletion_requested` | команда `/delete` или эквивалент | `telegram_user_id`, `funnel_id`, timestamp |
 
@@ -869,6 +873,16 @@ traffic source
 | `bonus_opened` | измерено открытие, если появится надёжный сигнал |
 
 `bonus_sent` не доказывает прочтение или прослушивание. Последние два события не создаются без измеримого сигнала.
+
+### Webinar invite delivery
+
+| Событие | Смысл |
+|---|---|
+| `webinar_invite_delivery_attempted` | начата попытка отправки invite с purpose `webinar` |
+| `webinar_invite_sent` | transport подтвердил отправку invite |
+| `webinar_invite_delivery_failed` | попытка завершилась ошибкой, timeout или отказом provider |
+
+Создание signed webinar token не означает доставку. Raw token и полная signed URL в metadata событий не сохраняются.
 
 ### Webinar and application
 
@@ -978,7 +992,10 @@ application without further relationship: 12 months
 - `telegram_user_id` как основной идентификатор после `/start`;
 - entry notice/request record с версией, timestamp, source и funnel ID;
 - события `bonus_delivery_attempted`, `bonus_sent`, `bonus_delivery_failed`;
-- provider-neutral bonus/webinar message plan;
+- события `webinar_invite_delivery_attempted`, `webinar_invite_sent`, `webinar_invite_delivery_failed`;
+- provider-neutral entry notice/bonus/webinar message plan;
+- dev transport по умолчанию и Telegram Bot API-compatible adapter без live-активации;
+- configurable `WEBINAR_BASE_URL` с `lab://` fallback;
 - классы сообщений `funnel_service` и `promotional`;
 - конфигурируемые warming rules с гипотезой 0 / 15 минут / 3 часа / 6 часов / 2 часа;
 - `/stop` и `/delete` request path;
@@ -995,7 +1012,7 @@ application without further relationship: 12 months
 
 - изменения публичного Astro-сайта, SEO-статей и навигации;
 - подключение funnel к production и реальному домену;
-- Telegram Bot API, token, webhook deployment и реальная отправка сообщений;
+- live-активация Telegram Bot API adapter, настоящий token, webhook deployment и реальная отправка сообщений;
 - реальный видеоматериал и production video provider;
 - финальные тексты webinar, bonus и warming;
 - полный SmartSender clone;
@@ -1036,7 +1053,7 @@ application without further relationship: 12 months
 
 ### Нужны отдельные production-решения
 
-- подключать ли Telegram Bot API и когда передавать token;
+- активировать ли Telegram Bot API adapter и когда передавать token;
 - способ размещения webhook и защита endpoint;
 - production host для funnel routes;
 - внешний CRM destination, если локального CRM view станет недостаточно;
@@ -1053,6 +1070,8 @@ application without further relationship: 12 months
 - отсутствие постоянного anonymous tracking до `/start`;
 - `telegram_user_id` как основной идентификатор после `/start`;
 - `bonus_delivery_attempted`, `bonus_sent`, `bonus_delivery_failed` вместо предположения о прочтении;
+- `webinar_invite_delivery_attempted`, `webinar_invite_sent`, `webinar_invite_delivery_failed` без подмены факта доставки фактом создания token;
+- dev transport по умолчанию, Bot API-compatible adapter без live-активации и configurable `WEBINAR_BASE_URL`;
 - два purpose-bound token с разными полномочиями;
 - только `name` и `situation` как baseline application fields;
 - config-driven warming и заданные MVP-задержки;
