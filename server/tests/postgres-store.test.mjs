@@ -50,6 +50,37 @@ integrationTest('Postgres store persists the full funnel and suppresses update d
   const storeA = createStore(schema);
   stores.push(storeA);
   await storeA.seed(localFixture);
+  const processingSource = await storeA.findSourceByStartParameter('men_webinar_v1', 'instagram_men_webinar');
+  const processingTouch = {
+    sourceId: processingSource.id,
+    source: processingSource.source,
+    medium: processingSource.medium,
+    campaign: processingSource.campaign,
+    content: processingSource.content,
+    articleSlug: null,
+    startParameter: processingSource.startParameter,
+    occurredAt: '2026-09-10T10:00:00.000Z',
+  };
+  await storeA.claimTelegramStart({
+    source: processingSource,
+    telegramUserId: 6999,
+    telegramChatId: 6999,
+    firstName: 'State',
+    username: null,
+    languageCode: 'ru',
+    firstTouch: processingTouch,
+    funnelEntryTouch: processingTouch,
+    eventMetadata: { source_id: processingSource.id },
+    eventKey: 'telegram-update:122',
+    updateId: 122,
+    occurredAt: processingTouch.occurredAt,
+  });
+  assert.equal((await storeA.getTelegramUpdate('men_webinar_v1', 122)).status, 'processing');
+  await storeA.finishTelegramUpdate({ funnelId: 'men_webinar_v1', updateId: 122, status: 'failed', errorStage: 'entry_notice', errorCode: 'controlled_test_error' });
+  const failedUpdate = await storeA.getTelegramUpdate('men_webinar_v1', 122);
+  assert.equal(failedUpdate.status, 'failed');
+  assert.equal(failedUpdate.errorStage, 'entry_notice');
+  assert.equal(failedUpdate.errorCode, 'controlled_test_error');
   const flowA = createFlow(storeA, firstDeliveries);
   const first = await flowA.handleTelegramStart({ telegramUserId: 7001, firstName: 'Restart', languageCode: 'ru', startParameter: 'article_wife_cheating', updateId: 123 });
   assert.deepEqual(firstDeliveries, ['entry_notice', 'bonus', 'webinar_invite']);

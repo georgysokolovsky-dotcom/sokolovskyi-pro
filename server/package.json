@@ -8,7 +8,9 @@
     "dev": "node --watch src/index.mjs",
     "test": "node --test",
     "test:postgres": "node --test tests/postgres-store.test.mjs",
-    "migrate": "node scripts/migrate.mjs"
+    "migrate": "node scripts/migrate.mjs",
+    "staging:webhook": "node scripts/telegram-webhook.mjs",
+    "staging:verify": "node scripts/staging-verify.mjs"
   },
   "dependencies": {
     "pg": "8.23.0"

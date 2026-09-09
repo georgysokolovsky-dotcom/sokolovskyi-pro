@@ -5,56 +5,55 @@ import { createMenWebinarFlow } from './flow/men-webinar.mjs';
 import { createApp } from './http/app.mjs';
 import { createDevTelegramTransport } from './telegram/transport.mjs';
 import { createTelegramBotApiTransport } from './telegram/bot-api-transport.mjs';
+import { getTelegramBotIdentity } from './telegram/bot-api-admin.mjs';
+import { loadRuntimeConfig } from './config/runtime-config.mjs';
 
-const mode = process.env.FUNNEL_MODE ?? 'local';
-if (mode !== 'local') throw new Error('Only FUNNEL_MODE=local is available before PostgreSQL setup');
-
-const requiredSecrets = ['TOKEN_SIGNING_SECRET', 'TELEGRAM_WEBHOOK_SECRET', 'ADMIN_SESSION_SECRET'];
-const missingSecrets = requiredSecrets.filter((name) => !process.env[name]);
-if (missingSecrets.length) throw new Error(`Missing required environment variables: ${missingSecrets.join(', ')}`);
-
-const telegramTransportMode = process.env.TELEGRAM_TRANSPORT ?? 'dev';
+const config = loadRuntimeConfig();
 let transport;
-if (telegramTransportMode === 'dev') {
+if (config.telegramTransportMode === 'dev') {
   transport = createDevTelegramTransport();
-} else if (telegramTransportMode === 'bot-api') {
-  const botApiConfig = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_BOT_API_BASE_URL'];
-  const missingBotApiConfig = botApiConfig.filter((name) => !process.env[name]);
-  if (missingBotApiConfig.length) throw new Error(`Missing required environment variables: ${missingBotApiConfig.join(', ')}`);
+} else {
   transport = createTelegramBotApiTransport({
     fetchImpl: globalThis.fetch,
-    baseUrl: process.env.TELEGRAM_BOT_API_BASE_URL,
-    botToken: process.env.TELEGRAM_BOT_TOKEN,
-    timeoutMs: Number(process.env.TELEGRAM_TIMEOUT_MS ?? 5000),
+    baseUrl: config.botApiBaseUrl,
+    botToken: config.botToken,
+    timeoutMs: config.timeoutMs,
   });
-} else {
-  throw new Error('TELEGRAM_TRANSPORT must be dev or bot-api');
 }
 
-const storeMode = process.env.FUNNEL_STORE ?? 'memory';
 let store;
-if (storeMode === 'memory') {
+if (config.storeMode === 'memory') {
   store = new MemoryStore();
-} else if (storeMode === 'postgres') {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for FUNNEL_STORE=postgres');
-  store = new PostgresStore({ connectionString: process.env.DATABASE_URL });
 } else {
-  throw new Error('FUNNEL_STORE must be memory or postgres');
+  store = new PostgresStore({ connectionString: config.databaseUrl });
 }
 await store.seed(localFixture);
+
+if (config.mode === 'staging') {
+  const identity = await getTelegramBotIdentity({
+    fetchImpl: globalThis.fetch,
+    baseUrl: config.botApiBaseUrl,
+    botToken: config.botToken,
+    timeoutMs: config.timeoutMs,
+  });
+  if (identity.username.toLowerCase() !== config.expectedBotUsername.toLowerCase()) {
+    await store.close();
+    throw new Error('Telegram bot identity does not match TELEGRAM_EXPECTED_BOT_USERNAME');
+  }
+}
+
 const flow = createMenWebinarFlow({
   store,
-  signingSecret: process.env.TOKEN_SIGNING_SECRET,
-  botUsername: process.env.TELEGRAM_BOT_USERNAME ?? localFixture.telegramBotUsername,
+  signingSecret: config.signingSecret,
+  botUsername: config.expectedBotUsername ?? config.botUsername ?? localFixture.telegramBotUsername,
   entryNotice: localFixture.entryNotice,
-  webinarBaseUrl: process.env.WEBINAR_BASE_URL || null,
+  webinarBaseUrl: config.webinarBaseUrl,
   transport,
 });
-const app = createApp({ flow, mode, webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET, adminKey: process.env.ADMIN_SESSION_SECRET });
-const port = Number(process.env.PORT ?? 8787);
+const app = createApp({ flow, mode: config.mode, webhookSecret: config.webhookSecret, adminKey: config.adminSecret });
 
-app.listen(port, '127.0.0.1', () => {
-  console.log(`Funnel server local fixture listening on http://127.0.0.1:${port} with ${storeMode} store`);
+app.listen(config.port, config.host, () => {
+  console.log(`Funnel server started in ${config.mode} mode with ${config.storeMode} store`);
 });
 
 async function shutdown() {

@@ -684,6 +684,24 @@ Automation реагирует только на события этого funnel
 
 Числа хранятся в automation config и меняются без переписывания business logic. Оба напоминания считаются от одного базового события sequence; второе не сдвигается на 3 часа после первого. Сценарий — рабочая гипотеза MVP; корректировка возможна после реальной статистики.
 
+### Lifecycle / Reactivation — будущий этап
+
+Lifecycle executor должен работать поверх сохранённых событий и текущего lead status, а не создавать параллельную историю. В его будущую область входят пользователи, которые:
+
+- получили bonus, но не открыли webinar;
+- начали webinar, но не досмотрели;
+- досмотрели webinar, но не перешли к CTA;
+- перешли к CTA, но не отправили application;
+- отправили application, но не дошли до разбора;
+- прошли разбор, но не купили;
+- давно находятся в базе без активности.
+
+Для каждой группы до реализации должны быть заданы qualifying event, отсутствующее target event, минимальный период неактивности, лимит сообщений, канал, message class и exit condition. Повторный вход в один lifecycle step защищается стабильным idempotency key; факт отправки подтверждается provider receipt и delivery event.
+
+Перед каждым warming или reactivation send executor заново проверяет suppression state. Автоматически исключаются покупатели, `telegram_stop`, deletion requested/processing/completed, недоступный Telegram channel и любые будущие legal/compliance запреты. Отмена имеет приоритет над уже поставленной задачей.
+
+На текущем этапе это только архитектурное требование. Scheduler, warming executor, recovery executor и reactivation messages не реализуются и не запускаются.
+
 ## G. Application
 
 ### Переход к заявке
@@ -997,7 +1015,7 @@ application without further relationship: 12 months
 - события `bonus_delivery_attempted`, `bonus_sent`, `bonus_delivery_failed`;
 - события `webinar_invite_delivery_attempted`, `webinar_invite_sent`, `webinar_invite_delivery_failed`;
 - provider-neutral entry notice/bonus/webinar message plan;
-- dev transport по умолчанию и Telegram Bot API-compatible adapter без live-активации;
+- dev transport по умолчанию, Telegram Bot API adapter и fail-closed staging configuration без сохранённых credentials;
 - configurable `WEBINAR_BASE_URL` с `lab://` fallback;
 - классы сообщений `funnel_service` и `promotional`;
 - конфигурируемые warming rules с гипотезой 0 / 15 минут / 3 часа / 6 часов / 2 часа;
@@ -1016,7 +1034,7 @@ application without further relationship: 12 months
 
 - изменения публичного Astro-сайта, SEO-статей и навигации;
 - подключение funnel к production и реальному домену;
-- live-активация Telegram Bot API adapter, настоящий token, webhook deployment и реальная отправка сообщений;
+- фактическая staging-активация Telegram Bot API, webhook registration и реальная отправка до credentialed acceptance test;
 - реальный видеоматериал и production video provider;
 - финальные тексты webinar, bonus и warming;
 - полный SmartSender clone;
@@ -1030,6 +1048,7 @@ application without further relationship: 12 months
 - analytics/cookies и изменение legal pages;
 - DNS, hosting, deploy и production secrets;
 - автоматические CRM-статусы после отправки заявки;
+- scheduler, recovery executor и Lifecycle / Reactivation executor;
 - полноценная multi-touch attribution;
 - сложная authentication system.
 
