@@ -1,4 +1,5 @@
 import { MemoryStore } from './store/memory-store.mjs';
+import { PostgresStore } from './store/postgres-store.mjs';
 import { localFixture } from './data/local-fixture.mjs';
 import { createMenWebinarFlow } from './flow/men-webinar.mjs';
 import { createApp } from './http/app.mjs';
@@ -30,8 +31,17 @@ if (telegramTransportMode === 'dev') {
   throw new Error('TELEGRAM_TRANSPORT must be dev or bot-api');
 }
 
-const store = new MemoryStore();
-store.seed(localFixture);
+const storeMode = process.env.FUNNEL_STORE ?? 'memory';
+let store;
+if (storeMode === 'memory') {
+  store = new MemoryStore();
+} else if (storeMode === 'postgres') {
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for FUNNEL_STORE=postgres');
+  store = new PostgresStore({ connectionString: process.env.DATABASE_URL });
+} else {
+  throw new Error('FUNNEL_STORE must be memory or postgres');
+}
+await store.seed(localFixture);
 const flow = createMenWebinarFlow({
   store,
   signingSecret: process.env.TOKEN_SIGNING_SECRET,
@@ -44,5 +54,12 @@ const app = createApp({ flow, mode, webhookSecret: process.env.TELEGRAM_WEBHOOK_
 const port = Number(process.env.PORT ?? 8787);
 
 app.listen(port, '127.0.0.1', () => {
-  console.log(`Funnel server local fixture listening on http://127.0.0.1:${port}`);
+  console.log(`Funnel server local fixture listening on http://127.0.0.1:${port} with ${storeMode} store`);
 });
+
+async function shutdown() {
+  await new Promise((resolve) => app.close(resolve));
+  if (typeof store.close === 'function') await store.close();
+}
+process.once('SIGINT', async () => { await shutdown(); process.exit(0); });
+process.once('SIGTERM', async () => { await shutdown(); process.exit(0); });

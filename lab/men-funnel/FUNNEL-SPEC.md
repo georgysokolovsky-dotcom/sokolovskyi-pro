@@ -51,7 +51,8 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `server/src/flow/men-webinar.mjs` — Telegram Start, выдача bonus, signed video token, события и application;
 - `server/src/security/signed-tokens.mjs` — текущий HMAC token с TTL 1 час;
 - `server/src/store/memory-store.mjs` — in-memory хранилище для lab;
-- `server/migrations/001_core.sql` — целевая схема PostgreSQL, пока не подключённая локально;
+- `server/src/store/postgres-store.mjs` — persistent implementation того же store contract;
+- `server/migrations/001_core.sql` — initial PostgreSQL schema с Telegram update state и database-level idempotency;
 - `server/tests/vertical-slice.test.mjs` — проверка пути от Telegram Start до application.
 
 В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Реальный видеоматериал не подключён.
@@ -65,7 +66,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 | Основной bonus | `https://t.me/georgy_sokolovsky/44` | audio, reference/placeholder |
 | Дополнительный bonus | `https://t.me/georgy_sokolovsky/16` | `draft`, `inactive`, не выдаётся |
 | Webinar | `lab-men-funnel-video-fixture` | lab fixture, не production-видео |
-| Storage | `MemoryStore` | только локальная проверка |
+| Storage | `MemoryStore` / `PostgresStore` | memory — safe default; postgres — persistent local/staging-ready mode |
 
 В текущей fixture bonus `/44` имеет `sourceId: null`. Это обязательное правило: bonus принадлежит funnel, а не отдельной статье.
 
@@ -328,7 +329,9 @@ start_parameter
 
 Текущий server использует ключи событий вида `telegram-update:<update_id>` и локальный тестовый endpoint `/v1/test/telegram/start`.
 
-Защита хранится в `MemoryStore`. Она работает для последовательных и одновременных дублей внутри одного процесса, но теряется после restart. Persistent idempotency отложена до следующего vertical slice.
+В `memory`-режиме защита работает только внутри одного процесса. В `postgres`-режиме `telegram_updates` имеет primary key `(funnel_id, update_id)`: первая транзакция атомарно регистрирует update, пользователя, attribution, Telegram profile и `telegram_start`. Concurrent и post-restart дубли не запускают delivery повторно.
+
+Update хранит `processing`, `completed` или `failed`, timestamps, `error_stage` и `error_code`. Telegram HTTP не входит в DB transaction; delivery attempted/sent/failed фиксируются отдельными events. Автоматический retry для `failed` и зависшего `processing` отложен.
 
 ### Команды управления
 
@@ -1005,8 +1008,9 @@ application without further relationship: 12 months
 - application только с обязательными `name` и `situation`;
 - нейтральное предупреждение о персональных данных третьих лиц;
 - минимальный локальный CRM view с двумя attribution-полями и timeline;
-- in-memory storage как lab implementation;
-- target PostgreSQL schema как технический ориентир, без подключения базы.
+- in-memory storage как safe-default lab implementation;
+- PostgreSQL store для users, attribution, Telegram updates, events, applications и deletion requests;
+- database-level duplicate `update_id` protection, сохраняющаяся после restart.
 
 ### Сознательно откладывается
 

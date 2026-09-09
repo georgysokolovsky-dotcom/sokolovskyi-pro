@@ -82,37 +82,37 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
 
       if (method === 'POST' && ['/v1/webinar/session', '/v1/video/session'].includes(url.pathname)) {
         const body = await readJson(request);
-        const session = flow.createWebinarSession(body.token);
+        const session = await flow.createWebinarSession(body.token);
         return sendJson(response, 200, { ok: true, funnelId: session.funnelId, purpose: session.purpose, webinar: session.webinar });
       }
 
       if (method === 'POST' && url.pathname === '/v1/events') {
         const body = await readJson(request);
-        const result = flow.recordTokenEvent(body);
+        const result = await flow.recordTokenEvent(body);
         return sendJson(response, result.duplicate ? 200 : 201, { ok: true, eventType: result.event.eventType, duplicate: result.duplicate, leadStatus: result.status });
       }
 
       if (method === 'POST' && url.pathname === '/v1/applications/token') {
         const body = await readJson(request);
-        const result = flow.createApplicationToken({ token: body.token });
+        const result = await flow.createApplicationToken({ token: body.token });
         return sendJson(response, 201, { ok: true, ...result });
       }
 
       if (method === 'POST' && url.pathname === '/v1/applications') {
         const body = await readJson(request);
-        const result = flow.submitApplication(body);
+        const result = await flow.submitApplication(body);
         return sendJson(response, result.duplicate ? 200 : 201, { ok: true, applicationId: result.application.id, status: result.application.status, duplicate: result.duplicate });
       }
 
       if (method === 'GET' && url.pathname === '/v1/admin/dashboard') {
         requireLocalAdmin(request, adminKey);
-        return sendJson(response, 200, { ok: true, dashboard: flow.dashboard(url.searchParams.get('funnel_id') ?? undefined) });
+        return sendJson(response, 200, { ok: true, dashboard: await flow.dashboard(url.searchParams.get('funnel_id') ?? undefined) });
       }
 
       const leadMatch = url.pathname.match(/^\/v1\/admin\/leads\/([^/]+)$/);
       if (method === 'GET' && leadMatch) {
         requireLocalAdmin(request, adminKey);
-        return sendJson(response, 200, { ok: true, lead: flow.leadDetails(leadMatch[1]) });
+        return sendJson(response, 200, { ok: true, lead: await flow.leadDetails(leadMatch[1]) });
       }
 
       throw new FunnelError('not_found', 'Not found', 404);

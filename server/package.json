@@ -6,6 +6,11 @@
   "scripts": {
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:postgres": "node --test tests/postgres-store.test.mjs",
+    "migrate": "node scripts/migrate.mjs"
+  },
+  "dependencies": {
+    "pg": "8.23.0"
   }
 }

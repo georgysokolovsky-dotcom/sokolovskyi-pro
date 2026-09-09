@@ -139,10 +139,10 @@ export function createMenWebinarFlow({
   if (!store) throw new Error('store is required');
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
 
-  function resolveToken(token, purpose) {
+  async function resolveToken(token, purpose) {
     const result = verifyFunnelToken(token, { purpose, secret: signingSecret });
     if (!result.ok) throw new FunnelError(result.code, 'Invalid or expired funnel token', 401);
-    const user = store.getUser(result.payload.user_ref);
+    const user = await store.getUser(result.payload.user_ref);
     if (!user || user.funnelId !== result.payload.funnel_id) {
       throw new FunnelError('invalid_token', 'Invalid funnel token', 401);
     }
@@ -166,8 +166,8 @@ export function createMenWebinarFlow({
     };
   }
 
-  function issueWebinarToken(user) {
-    const webinar = [...store.webinars.values()].find((item) => item.funnelId === user.funnelId);
+  async function issueWebinarToken(user) {
+    const webinar = await store.findWebinarForFunnel(user.funnelId);
     const token = issueToken({ user, purpose: 'webinar' });
     const configuredBase = typeof webinarBaseUrl === 'string' && webinarBaseUrl.trim()
       ? webinarBaseUrl.trim().replace(/\/+$/, '')
@@ -192,11 +192,11 @@ export function createMenWebinarFlow({
     };
   }
 
-  function recordUserEvent({ userId, funnelId, eventType, metadata = {}, idempotencyKey = null }) {
+  async function recordUserEvent({ userId, funnelId, eventType, metadata = {}, idempotencyKey = null }) {
     if (!FUNNEL_EVENTS.includes(eventType)) throw new FunnelError('invalid_event', 'Unsupported event type');
-    const current = store.getUser(userId);
+    const current = await store.getUser(userId);
     if (!current || current.funnelId !== funnelId) throw new FunnelError('not_found', 'User not found', 404);
-    const result = store.addEvent({
+    const result = await store.addEvent({
       userId,
       funnelId,
       eventType,
@@ -205,19 +205,19 @@ export function createMenWebinarFlow({
     });
     if (!result.duplicate) {
       const transition = transitionForEvent(eventType);
-      if (transition) store.updateUser(userId, { leadStatus: transition });
+      if (transition) await store.updateUser(userId, { leadStatus: transition });
       if (eventType === 'telegram_stop') {
-        store.setPromotionalEnabled(userId, false, result.event.occurredAt);
+        await store.setPromotionalEnabled(userId, false, result.event.occurredAt);
       }
       if (eventType === 'data_deletion_requested') {
-        store.requestDataDeletion({ userId, funnelId });
+        await store.requestDataDeletion({ userId, funnelId });
       }
     }
-    return { ...result, status: store.getUser(userId).leadStatus };
+    return { ...result, status: (await store.getUser(userId)).leadStatus };
   }
 
-  function bonusDeliveryStatus(userId, bonusId) {
-    const events = store.listUserEvents(userId).filter((event) => event.metadata?.bonus_id === bonusId);
+  async function bonusDeliveryStatus(userId, bonusId) {
+    const events = (await store.listUserEvents(userId)).filter((event) => event.metadata?.bonus_id === bonusId);
     const sent = events.find((event) => event.eventType === 'bonus_sent');
     if (sent) return { status: 'sent', event: sent };
     const failed = [...events].reverse().find((event) => event.eventType === 'bonus_delivery_failed');
@@ -227,8 +227,8 @@ export function createMenWebinarFlow({
     return { status: 'not_started', event: null };
   }
 
-  function webinarInviteDeliveryStatus(userId) {
-    const events = store.listUserEvents(userId);
+  async function webinarInviteDeliveryStatus(userId) {
+    const events = await store.listUserEvents(userId);
     const sent = events.find((event) => event.eventType === 'webinar_invite_sent');
     if (sent) return { status: 'sent', event: sent };
     const failed = [...events].reverse().find((event) => event.eventType === 'webinar_invite_delivery_failed');
@@ -239,23 +239,24 @@ export function createMenWebinarFlow({
   }
 
   async function sendTransportMessage({ user, message, bonus = null }) {
+    const telegram = await store.getTelegramUser(user.id);
     return transport.sendMessage({
       userId: user.id,
       funnelId: user.funnelId,
-      telegramChatId: store.getTelegramUser(user.id)?.telegramUserId,
+      telegramChatId: telegram?.telegramChatId ?? telegram?.telegramUserId,
       message,
       bonus,
     });
   }
 
   async function deliverEntryNotice({ user, source, message, occurredAt }) {
-    const previous = store.listUserEvents(user.id).find((event) => event.eventType === 'funnel_entry_notice_presented');
+    const previous = (await store.listUserEvents(user.id)).find((event) => event.eventType === 'funnel_entry_notice_presented');
     if (previous) return { status: 'sent', event: previous, duplicate: true };
     try {
       const result = await sendTransportMessage({ user, message });
       const notice = { ...entryNotice, funnelId: source.funnelId, timestamp: occurredAt };
-      store.updateUser(user.id, { entryNotice: notice, leadStatus: 'telegram_lead' });
-      const presented = store.addEvent({
+      await store.updateUser(user.id, { entryNotice: notice, leadStatus: 'telegram_lead' });
+      const presented = await store.addEvent({
         userId: user.id,
         funnelId: source.funnelId,
         eventType: 'funnel_entry_notice_presented',
@@ -278,13 +279,13 @@ export function createMenWebinarFlow({
 
   async function deliverBonus({ user, bonus, message }) {
     if (!bonus) return { status: 'not_configured', event: null };
-    const previous = bonusDeliveryStatus(user.id, bonus.id);
+    const previous = await bonusDeliveryStatus(user.id, bonus.id);
     if (previous.status === 'sent') return { status: 'sent', event: previous.event, duplicate: true };
 
-    const attempts = store.listUserEvents(user.id).filter((event) => event.eventType === 'bonus_delivery_attempted' && event.metadata?.bonus_id === bonus.id);
+    const attempts = (await store.listUserEvents(user.id)).filter((event) => event.eventType === 'bonus_delivery_attempted' && event.metadata?.bonus_id === bonus.id);
     const attemptNumber = attempts.length + 1;
     const attemptKey = `bonus-attempt:${user.id}:${bonus.id}:${bonus.version}:${attemptNumber}`;
-    const attempted = store.addEvent({
+    const attempted = await store.addEvent({
       userId: user.id,
       funnelId: user.funnelId,
       eventType: 'bonus_delivery_attempted',
@@ -299,7 +300,7 @@ export function createMenWebinarFlow({
 
     try {
       const result = await sendTransportMessage({ user, bonus, message });
-      const sent = store.addEvent({
+      const sent = await store.addEvent({
         userId: user.id,
         funnelId: user.funnelId,
         eventType: 'bonus_sent',
@@ -313,7 +314,7 @@ export function createMenWebinarFlow({
       });
       return { status: 'sent', event: sent.event, duplicate: sent.duplicate, provider: result.provider, providerMessageId: result.messageId };
     } catch (error) {
-      const failed = store.addEvent({
+      const failed = await store.addEvent({
         userId: user.id,
         funnelId: user.funnelId,
         eventType: 'bonus_delivery_failed',
@@ -330,12 +331,12 @@ export function createMenWebinarFlow({
   }
 
   async function deliverWebinarInvite({ user, message }) {
-    const previous = webinarInviteDeliveryStatus(user.id);
+    const previous = await webinarInviteDeliveryStatus(user.id);
     if (previous.status === 'sent') return { status: 'sent', event: previous.event, duplicate: true };
 
-    const attempts = store.listUserEvents(user.id).filter((event) => event.eventType === 'webinar_invite_delivery_attempted');
+    const attempts = (await store.listUserEvents(user.id)).filter((event) => event.eventType === 'webinar_invite_delivery_attempted');
     const attemptNumber = attempts.length + 1;
-    const attempted = store.addEvent({
+    const attempted = await store.addEvent({
       userId: user.id,
       funnelId: user.funnelId,
       eventType: 'webinar_invite_delivery_attempted',
@@ -351,7 +352,7 @@ export function createMenWebinarFlow({
 
     try {
       const result = await sendTransportMessage({ user, message });
-      const sent = store.addEvent({
+      const sent = await store.addEvent({
         userId: user.id,
         funnelId: user.funnelId,
         eventType: 'webinar_invite_sent',
@@ -366,7 +367,7 @@ export function createMenWebinarFlow({
       });
       return { status: 'sent', event: sent.event, provider: result.provider, providerMessageId: result.messageId };
     } catch (error) {
-      const failed = store.addEvent({
+      const failed = await store.addEvent({
         userId: user.id,
         funnelId: user.funnelId,
         eventType: 'webinar_invite_delivery_failed',
@@ -386,69 +387,44 @@ export function createMenWebinarFlow({
   async function handleTelegramStart({ telegramUserId, firstName = null, username = null, languageCode = null, startParameter, updateId = null, timestamp = null }) {
     if (telegramUserId == null) throw new FunnelError('invalid_input', 'telegramUserId is required');
     if (!sourcePattern.test(startParameter ?? '')) throw new FunnelError('invalid_start_parameter', 'Invalid start parameter');
-    let source = store.findSourceByStartParameter(FUNNEL_ID, startParameter);
+    let source = await store.findSourceByStartParameter(FUNNEL_ID, startParameter);
     if (!source) throw new FunnelError('unknown_source', 'Unknown start parameter', 404);
 
     const occurredAt = timestamp ?? new Date().toISOString();
     const eventKey = updateId == null ? `telegram-start:${telegramUserId}:${startParameter}` : `telegram-update:${updateId}`;
-    const previousStartEvent = store.findEventByIdempotencyKey(source.funnelId, eventKey);
-    let user;
-    let startEvent;
-
-    if (previousStartEvent) {
-      user = store.getUser(previousStartEvent.userId);
-      source = store.findSourceById(previousStartEvent.metadata?.source_id) ?? source;
-      startEvent = { event: previousStartEvent, duplicate: true };
-    } else {
-      const existing = store.findUserByTelegramId(telegramUserId);
-      const firstTouch = existing?.firstTouch ?? buildTouch(source, occurredAt);
-      const funnelEntryTouch = existing?.funnelEntryTouch ?? buildTouch(source, occurredAt);
-      user = existing ?? store.createUser({
-        funnelId: source.funnelId,
-        sourceId: firstTouch.sourceId,
-        firstTouch,
-        funnelEntryTouch,
-        leadStatus: 'telegram_lead',
-      });
-      if (existing) {
-        store.updateUser(user.id, {
-          sourceId: existing.firstTouch?.sourceId ?? existing.sourceId ?? firstTouch.sourceId,
-          firstTouch,
-          funnelEntryTouch,
-        });
-      }
-      store.upsertTelegramUser({ userId: user.id, telegramUserId, firstName, username, languageCode });
-      startEvent = store.addEvent({
-        userId: user.id,
-        funnelId: source.funnelId,
-        eventType: 'telegram_start',
-        metadata: sourceMetadata(source),
-        idempotencyKey: eventKey,
-      });
+    const firstTouch = buildTouch(source, occurredAt);
+    const claimed = await store.claimTelegramStart({
+      source, telegramUserId, telegramChatId: telegramUserId, firstName, username, languageCode,
+      firstTouch, funnelEntryTouch: firstTouch, eventMetadata: sourceMetadata(source), eventKey, updateId, occurredAt,
+    });
+    const user = claimed.user;
+    const startEvent = { event: claimed.event, duplicate: claimed.duplicate };
+    if (startEvent.duplicate && startEvent.event?.metadata?.source_id) {
+      source = await store.findSourceById(startEvent.event.metadata.source_id) ?? source;
     }
 
-    const activeUser = store.getUser(user.id);
-    const bonus = store.findBonusForFunnel(activeUser.funnelId, 'entry');
+    const activeUser = await store.getUser(user.id);
+    const bonus = await store.findBonusForFunnel(activeUser.funnelId, 'entry');
     if (bonus && !BONUS_DELIVERY_MODES.includes(bonus.deliveryMode)) {
       throw new FunnelError('invalid_bonus_config', 'Invalid bonus delivery mode', 500);
     }
-    const noticeMessage = buildTemplateMessage(store.findMessageTemplate(activeUser.funnelId, 'entry_notice'));
+    const noticeMessage = buildTemplateMessage(await store.findMessageTemplate(activeUser.funnelId, 'entry_notice'));
     const bonusMessage = buildTemplateMessage(
-      store.findMessageTemplate(activeUser.funnelId, 'podcast_bonus_intro'),
+      await store.findMessageTemplate(activeUser.funnelId, 'podcast_bonus_intro'),
       { role: 'bonus', bonus },
     );
-    const webinarTemplate = store.findMessageTemplate(activeUser.funnelId, 'webinar_invite');
+    const webinarTemplate = await store.findMessageTemplate(activeUser.funnelId, 'webinar_invite');
     if (!noticeMessage || !bonus || !bonusMessage || !webinarTemplate) {
       throw new FunnelError('invalid_message_config', 'Telegram message plan is incomplete', 500);
     }
 
     const messagePlan = [noticeMessage, bonusMessage];
-    const previousNotice = store.listUserEvents(activeUser.id).find((event) => event.eventType === 'funnel_entry_notice_presented');
+    const previousNotice = (await store.listUserEvents(activeUser.id)).find((event) => event.eventType === 'funnel_entry_notice_presented');
     let noticeDelivery = previousNotice
       ? { status: 'sent', event: previousNotice, duplicate: true }
       : { status: 'not_started', event: null };
-    let bonusDelivery = bonusDeliveryStatus(activeUser.id, bonus.id);
-    let webinarInviteDelivery = webinarInviteDeliveryStatus(activeUser.id);
+    let bonusDelivery = await bonusDeliveryStatus(activeUser.id, bonus.id);
+    let webinarInviteDelivery = await webinarInviteDeliveryStatus(activeUser.id);
     let webinar = null;
 
     if (!startEvent.duplicate) {
@@ -459,12 +435,27 @@ export function createMenWebinarFlow({
     }
 
     if (bonusDelivery.status === 'sent') {
-      webinar = issueWebinarToken(activeUser);
+      webinar = await issueWebinarToken(activeUser);
       const webinarMessage = buildTemplateMessage(webinarTemplate, { role: 'webinar_invite', webinarUrl: webinar.url });
       messagePlan.push(webinarMessage);
       if (!startEvent.duplicate) {
         webinarInviteDelivery = await deliverWebinarInvite({ user: activeUser, message: webinarMessage });
       }
+    }
+
+    if (!startEvent.duplicate) {
+      const failed = [
+        ['entry_notice', noticeDelivery],
+        ['bonus', bonusDelivery],
+        ['webinar_invite', webinarInviteDelivery],
+      ].find(([, delivery]) => delivery.status === 'failed');
+      await store.finishTelegramUpdate({
+        funnelId: activeUser.funnelId,
+        updateId,
+        status: failed ? 'failed' : 'completed',
+        errorStage: failed?.[0] ?? null,
+        errorCode: failed?.[1]?.errorCode ?? null,
+      });
     }
 
     return {
@@ -507,9 +498,9 @@ export function createMenWebinarFlow({
     };
   }
 
-  function createWebinarSession(token) {
-    const { user, payload } = resolveToken(token, 'webinar');
-    const webinar = [...store.webinars.values()].find((item) => item.funnelId === user.funnelId);
+  async function createWebinarSession(token) {
+    const { user, payload } = await resolveToken(token, 'webinar');
+    const webinar = await store.findWebinarForFunnel(user.funnelId);
     return {
       userId: user.id,
       funnelId: payload.funnel_id,
@@ -518,43 +509,34 @@ export function createMenWebinarFlow({
     };
   }
 
-  function recordTokenEvent({ token, eventType, metadata, idempotencyKey }) {
+  async function recordTokenEvent({ token, eventType, metadata, idempotencyKey }) {
     const purpose = WEBINAR_EVENTS.includes(eventType)
       ? 'webinar'
       : ['application_started', 'application_submitted'].includes(eventType)
         ? 'application'
         : null;
     if (!purpose) throw new FunnelError('invalid_event', 'Unsupported token event');
-    const { user } = resolveToken(token, purpose);
+    const { user } = await resolveToken(token, purpose);
     return recordUserEvent({ userId: user.id, funnelId: user.funnelId, eventType, metadata, idempotencyKey });
   }
 
-  function createApplicationToken({ token }) {
-    const { user } = resolveToken(token, 'webinar');
-    const hasCta = store.listUserEvents(user.id).some((event) => event.eventType === 'cta_clicked');
+  async function createApplicationToken({ token }) {
+    const { user } = await resolveToken(token, 'webinar');
+    const hasCta = (await store.listUserEvents(user.id)).some((event) => event.eventType === 'cta_clicked');
     if (!hasCta) throw new FunnelError('cta_required', 'Webinar CTA is required', 409);
     return issueApplicationToken(user);
   }
 
-  function submitApplication({ token, answers, consent, idempotencyKey }) {
-    const { user } = resolveToken(token, 'application');
+  async function submitApplication({ token, answers, consent, idempotencyKey }) {
+    const { user } = await resolveToken(token, 'application');
     const cleanAnswers = sanitizeAnswers(answers);
     const cleanConsent = assertConsent(consent);
-    const result = store.createApplication({ userId: user.id, funnelId: user.funnelId, answers: cleanAnswers, consent: cleanConsent, idempotencyKey });
-    if (!result.duplicate) {
-      recordUserEvent({
-        userId: user.id,
-        funnelId: user.funnelId,
-        eventType: 'application_submitted',
-        metadata: { purpose: 'application' },
-        idempotencyKey: `application-event:${result.application.id}`,
-      });
-    }
+    const result = await store.createApplicationWithEvent({ userId: user.id, funnelId: user.funnelId, answers: cleanAnswers, consent: cleanConsent, idempotencyKey });
     return { ...result, userId: user.id };
   }
 
-  function stopTelegramFlow({ telegramUserId, idempotencyKey = null }) {
-    const user = store.findUserByTelegramId(telegramUserId);
+  async function stopTelegramFlow({ telegramUserId, idempotencyKey = null }) {
+    const user = await store.findUserByTelegramId(telegramUserId);
     if (!user) throw new FunnelError('not_found', 'Telegram user not found', 404);
     return recordUserEvent({
       userId: user.id,
@@ -565,36 +547,38 @@ export function createMenWebinarFlow({
     });
   }
 
-  function requestDataDeletion({ telegramUserId, idempotencyKey = null }) {
-    const user = store.findUserByTelegramId(telegramUserId);
+  async function requestDataDeletion({ telegramUserId, idempotencyKey = null }) {
+    const user = await store.findUserByTelegramId(telegramUserId);
     if (!user) throw new FunnelError('not_found', 'Telegram user not found', 404);
-    const result = recordUserEvent({
+    const result = await recordUserEvent({
       userId: user.id,
       funnelId: user.funnelId,
       eventType: 'data_deletion_requested',
       metadata: {},
       idempotencyKey: idempotencyKey ?? `data-deletion:${user.id}`,
     });
-    return { ...result, request: store.getDataDeletionRequest({ userId: user.id, funnelId: user.funnelId }) };
+    return { ...result, request: await store.getDataDeletionRequest({ userId: user.id, funnelId: user.funnelId }) };
   }
 
-  function leadDetails(userId) {
-    const user = store.getUser(userId);
+  async function leadDetails(userId) {
+    const user = await store.getUser(userId);
     if (!user) throw new FunnelError('not_found', 'Lead not found', 404);
-    const events = store.listUserEvents(user.id);
+    const events = await store.listUserEvents(user.id);
     const webinarEvents = events.filter((event) => WEBINAR_EVENTS.includes(event.eventType));
     const progressEvent = [...['watched_90', 'watched_75', 'watched_50', 'watched_25']]
       .map((eventType) => webinarEvents.find((event) => event.eventType === eventType))
       .find(Boolean);
     const bonusEvents = events.filter((event) => ['bonus_delivery_attempted', 'bonus_sent', 'bonus_delivery_failed'].includes(event.eventType));
     const latestBonusEvent = bonusEvents.at(-1) ?? null;
-    const application = store.getApplicationForUser(user.id);
-    const firstTouch = user.firstTouch ?? (user.sourceId ? buildTouch(store.findSourceById(user.sourceId), user.createdAt) : null);
+    const application = await store.getApplicationForUser(user.id);
+    const source = user.sourceId ? await store.findSourceById(user.sourceId) : null;
+    const webinar = await store.findWebinarForFunnel(user.funnelId);
+    const firstTouch = user.firstTouch ?? (source ? buildTouch(source, user.createdAt) : null);
     return {
       id: user.id,
       funnelId: user.funnelId,
       leadStatus: user.leadStatus,
-      source: user.sourceId ? store.findSourceById(user.sourceId) : null,
+      source,
       attribution: {
         first_touch: firstTouch,
         funnel_entry_touch: user.funnelEntryTouch,
@@ -602,7 +586,7 @@ export function createMenWebinarFlow({
         funnel_id: user.funnelId,
       },
       entryNotice: user.entryNotice,
-      telegram: store.getTelegramUser(user.id),
+      telegram: await store.getTelegramUser(user.id),
       bonus: {
         status: latestBonusEvent?.eventType === 'bonus_sent'
           ? 'sent'
@@ -614,7 +598,7 @@ export function createMenWebinarFlow({
         events: bonusEvents.map(({ id, eventType, occurredAt, metadata }) => ({ id, eventType, occurredAt, metadata })),
       },
       webinar: {
-        webinarId: [...store.webinars.values()].find((item) => item.funnelId === user.funnelId)?.id ?? null,
+        webinarId: webinar?.id ?? null,
         maxProgress: progressEvent ? Number(progressEvent.eventType.split('_')[1]) : 0,
         events: webinarEvents.map(({ id, eventType, occurredAt, metadata }) => ({ id, eventType, occurredAt, metadata })),
       },
@@ -624,7 +608,7 @@ export function createMenWebinarFlow({
         promotional: user.promotionalEnabled !== false,
         stopRequestedAt: user.stopRequestedAt,
       },
-      deletionRequest: store.getDataDeletionRequest({ userId: user.id, funnelId: user.funnelId }),
+      deletionRequest: await store.getDataDeletionRequest({ userId: user.id, funnelId: user.funnelId }),
       events: events.map(({ id, eventType, occurredAt, metadata, idempotencyKey }) => ({ id, eventType, occurredAt, metadata, idempotencyKey })),
       lastEventAt: user.lastEventAt,
     };
@@ -638,7 +622,7 @@ export function createMenWebinarFlow({
     submitApplication,
     stopTelegramFlow,
     requestDataDeletion,
-    canSendPromotional: (userId) => store.getUser(userId)?.promotionalEnabled === true,
+    canSendPromotional: async (userId) => (await store.getUser(userId))?.promotionalEnabled === true,
     leadDetails,
     dashboard: (funnelId = FUNNEL_ID) => store.dashboard(funnelId),
     warmingConfig: (funnelId = FUNNEL_ID) => store.listAutomationRules(funnelId),

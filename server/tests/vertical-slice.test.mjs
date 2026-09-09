@@ -216,6 +216,8 @@ test('entry notice failure stops the remaining message sequence', async (t) => {
   assert.equal(started.body.webinarInviteDelivery.status, 'not_started');
   assert.deepEqual(sentRoles, ['entry_notice']);
   assert.deepEqual(server.store.events.map((item) => item.eventType), ['telegram_start']);
+  assert.equal(server.store.getTelegramUpdate('men_webinar_v1', 22).status, 'failed');
+  assert.equal(server.store.getTelegramUpdate('men_webinar_v1', 22).errorStage, 'entry_notice');
 });
 
 test('webinar invite failure is recorded without claiming invite sent', async (t) => {
@@ -236,6 +238,7 @@ test('webinar invite failure is recorded without claiming invite sent', async (t
     'webinar_invite_delivery_failed',
   ]);
   assert.equal(server.store.events.some((item) => item.eventType === 'webinar_invite_sent'), false);
+  assert.equal(server.store.getTelegramUpdate('men_webinar_v1', 23).errorStage, 'webinar_invite');
 });
 
 test('first touch is immutable and direct entry has nullable article slug', async (t) => {
@@ -291,13 +294,13 @@ test('stop disables promotional messaging and delete creates a pending request',
   t.after(() => server.app.close());
   const started = await start(server, { telegramUserId: 666, updateId: 7 });
 
-  const stopped = server.flow.stopTelegramFlow({ telegramUserId: 666 });
+  const stopped = await server.flow.stopTelegramFlow({ telegramUserId: 666 });
   assert.equal(stopped.event.eventType, 'telegram_stop');
-  assert.equal(server.flow.canSendPromotional(started.body.userId), false);
-  const repeatedStop = server.flow.stopTelegramFlow({ telegramUserId: 666 });
+  assert.equal(await server.flow.canSendPromotional(started.body.userId), false);
+  const repeatedStop = await server.flow.stopTelegramFlow({ telegramUserId: 666 });
   assert.equal(repeatedStop.duplicate, true);
 
-  const deletion = server.flow.requestDataDeletion({ telegramUserId: 666 });
+  const deletion = await server.flow.requestDataDeletion({ telegramUserId: 666 });
   assert.equal(deletion.event.eventType, 'data_deletion_requested');
   assert.equal(deletion.request.status, 'requested');
 
@@ -331,7 +334,7 @@ test('invalid application does not create application_submitted and warming rema
   const lead = await request(server, `/v1/admin/leads/${started.body.userId}`, { headers: { 'x-admin-local-key': adminKey } });
   assert.equal(lead.body.lead.application, null);
   assert.equal(lead.body.lead.events.some((item) => item.eventType === 'application_submitted'), false);
-  assert.deepEqual(server.flow.warmingConfig().map((rule) => rule.delaySeconds).sort((a, b) => a - b), [900, 7200, 10800, 21600]);
+  assert.deepEqual((await server.flow.warmingConfig()).map((rule) => rule.delaySeconds).sort((a, b) => a - b), [900, 7200, 10800, 21600]);
   assert.equal(FUNNEL_EVENTS.includes('bonus_received'), false);
 });
 

@@ -13,6 +13,7 @@ export class MemoryStore {
     this.webinars = new Map();
     this.users = new Map();
     this.telegramUsers = new Map();
+    this.telegramUpdates = new Map();
     this.events = [];
     this.eventKeys = new Set();
     this.applications = new Map();
@@ -51,6 +52,10 @@ export class MemoryStore {
 
   findMessageTemplate(funnelId, name) {
     return [...this.messageTemplates.values()].find((template) => template.funnelId === funnelId && template.name === name && template.status === 'active') ?? null;
+  }
+
+  findWebinarForFunnel(funnelId) {
+    return clone([...this.webinars.values()].find((item) => item.funnelId === funnelId) ?? null);
   }
 
   listAutomationRules(funnelId) {
@@ -104,12 +109,13 @@ export class MemoryStore {
     });
   }
 
-  upsertTelegramUser({ userId, telegramUserId, firstName = null, username = null, languageCode = null }) {
+  upsertTelegramUser({ userId, telegramUserId, telegramChatId = telegramUserId, firstName = null, username = null, languageCode = null }) {
     const existing = this.telegramUsers.get(userId);
     const now = this.now().toISOString();
     const record = {
       userId,
       telegramUserId: String(telegramUserId),
+      telegramChatId: String(telegramChatId),
       firstName,
       username,
       languageCode,
@@ -173,6 +179,37 @@ export class MemoryStore {
     return clone(this.events.find((event) => event.funnelId === funnelId && event.idempotencyKey === idempotencyKey) ?? null);
   }
 
+  claimTelegramStart({ source, telegramUserId, telegramChatId, firstName, username, languageCode, firstTouch, funnelEntryTouch, eventMetadata, eventKey, updateId, occurredAt }) {
+    const updateKey = updateId == null ? null : `${source.funnelId}:${updateId}`;
+    if (updateKey && this.telegramUpdates.has(updateKey)) {
+      const update = this.telegramUpdates.get(updateKey);
+      return { user: this.getUser(update.userId), event: this.findEventByIdempotencyKey(source.funnelId, eventKey), duplicate: true, updateStatus: update.status };
+    }
+    if (updateKey) this.telegramUpdates.set(updateKey, { funnelId: source.funnelId, updateId: String(updateId), userId: null, sourceId: source.id, status: 'processing', receivedAt: occurredAt, processingStartedAt: occurredAt, completedAt: null, failedAt: null, errorStage: null, errorCode: null });
+    const existing = this.findUserByTelegramId(telegramUserId);
+    const user = existing ?? this.createUser({ funnelId: source.funnelId, sourceId: firstTouch.sourceId, firstTouch, funnelEntryTouch, leadStatus: 'telegram_lead' });
+    if (existing) this.updateUser(user.id, { sourceId: existing.firstTouch?.sourceId ?? existing.sourceId ?? firstTouch.sourceId, firstTouch: existing.firstTouch ?? firstTouch, funnelEntryTouch: existing.funnelEntryTouch ?? funnelEntryTouch });
+    this.upsertTelegramUser({ userId: user.id, telegramUserId, telegramChatId, firstName, username, languageCode });
+    const event = this.addEvent({ userId: user.id, funnelId: source.funnelId, eventType: 'telegram_start', metadata: eventMetadata, idempotencyKey: eventKey });
+    if (updateKey) this.telegramUpdates.get(updateKey).userId = user.id;
+    return { user: this.getUser(user.id), event: event.event, duplicate: event.duplicate, updateStatus: 'processing' };
+  }
+
+  finishTelegramUpdate({ funnelId, updateId, status, errorStage = null, errorCode = null }) {
+    if (updateId == null) return;
+    const update = this.telegramUpdates.get(`${funnelId}:${updateId}`);
+    if (!update) return;
+    update.status = status;
+    update.errorStage = errorStage;
+    update.errorCode = errorCode;
+    if (status === 'completed') update.completedAt = this.now().toISOString();
+    if (status === 'failed') update.failedAt = this.now().toISOString();
+  }
+
+  getTelegramUpdate(funnelId, updateId) {
+    return clone(this.telegramUpdates.get(`${funnelId}:${updateId}`) ?? null);
+  }
+
   listUserEvents(userId) {
     return clone(this.events.filter((event) => event.userId === userId));
   }
@@ -196,6 +233,15 @@ export class MemoryStore {
     this.applications.set(application.id, application);
     if (idempotencyKey) this.applicationKeys.set(idempotencyKey, application.id);
     return { application: clone(application), duplicate: false };
+  }
+
+  createApplicationWithEvent(args) {
+    const result = this.createApplication(args);
+    if (!result.duplicate) {
+      this.addEvent({ userId: args.userId, funnelId: args.funnelId, eventType: 'application_submitted', metadata: { purpose: 'application' }, idempotencyKey: `application-event:${result.application.id}` });
+      this.updateUser(args.userId, { leadStatus: 'application_submitted' });
+    }
+    return result;
   }
 
   getApplicationForUser(userId) {
