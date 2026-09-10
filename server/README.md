@@ -12,6 +12,8 @@ Telegram /start
   → purpose-bound webinar token
   → webinar invite с подписанной URL
   → token-protected webinar page
+  → short-lived video-bound media token
+  → protected MP4 Range streaming
   → server-derived progress milestones
   → CTA → application token
   → persistent warming schedule
@@ -56,7 +58,13 @@ Runner применяет только ещё не записанные SQL-фа
 
 Server отдаёт изолированную page по адресу `/webinar/:videoId?t=<webinar_token>`. До валидации signature, expiration, `purpose=webinar`, funnel и user страница не создаёт tracking-записей. Refresh не погашает действующий token.
 
-Native player adapter отправляет только `play`, `heartbeat`, `pause`, `seek`, `ended` в `/v1/webinar/telemetry`. Browser не выбирает funnel event, `user_id` или `funnel_id`. Server принимает только участки, где playhead двигался вперёд не быстрее server elapsed time с малым tolerance. Seek только меняет baseline.
+После успешной проверки страницы server выпускает отдельный HMAC token с `purpose=media`. Он привязан к internal user, funnel и конкретному `video_id`, не сохраняется в PostgreSQL и живёт не меньше 15 минут или configured video duration плюс 10 минут — берётся большее значение. Webinar и application token media endpoint не принимает.
+
+Local fixture выдаётся по `/v1/webinar/media/:videoId?mt=<media_token>`. Endpoint повторно проверяет signature, expiry, purpose, user, funnel, video и active webinar. MP4 читается потоком с диска: поддерживаются полный `200`, одиночные `Range: bytes=...`, `206`, suffix/open-ended ranges, `Content-Range`, `Accept-Ranges`, точный `Content-Length`, `HEAD` и `416`. Filesystem path не раскрывается. Ответ использует `video/mp4`, private cache, `no-referrer`, `nosniff` и same-origin без wildcard CORS.
+
+Native player adapter получает разрешённый playback source из server-rendered page и предоставляет узкий интерфейс: подписка на play/pause/timeupdate/seeked/ended, чтение currentTime, duration, paused и ended. Он отправляет только `play`, `heartbeat`, `pause`, `seek`, `ended` в `/v1/webinar/telemetry`. Browser не выбирает funnel event, `user_id` или `funnel_id`. Server принимает только участки, где playhead двигался вперёд не быстрее server elapsed time с малым tolerance. Seek только меняет baseline.
+
+Будущий provider adapter должен получить server-authorized playback source, создать provider player и реализовать тот же интерфейс событий/состояния. Provider-specific playback не определяет funnel milestones: PostgreSQL watched ranges и MEN server остаются источником истины.
 
 Прогресс — длина объединения уникальных просмотренных диапазонов из всех вкладок, делённая на configured duration. Повтор, overlap и refresh не увеличивают его дважды. Server создаёт один раз `webinar_started`, `watched_25/50/75/90/100` и `webinar_completed`.
 
@@ -162,6 +170,16 @@ npm run test:funnel
 
 Тесты поднимают in-process fake Telegram Bot API на случайном локальном порту. Он принимает реальные HTTP payload и эмулирует success, HTTP 400/500, timeout, malformed JSON и `{ ok: false }`. Внешний интернет и Telegram в тестах не используются.
 
+Настоящий browser E2E запускается отдельно в установленном Google Chrome:
+
+```bash
+npm --prefix server run test:browser
+```
+
+Он требует `FUNNEL_TEST_DATABASE_URL`, создаёт и удаляет отдельную PostgreSQL schema, запускает MEN server с fake transport и воспроизводит 40-секундный fixture в реальном HTML5 player. Проверяются media authorization/Range, milestones, refresh, две вкладки, seek protection, scheduler, CTA и application transition. Артефакты Playwright пишутся только в `/tmp`, критические browser tests не skipped.
+
+Для временной HTTPS-проверки тот же E2E принимает process-only `FUNNEL_E2E_PORT` и `FUNNEL_E2E_ORIGIN`. При задержке локального DNS допускается process-only `FUNNEL_E2E_RESOLVE_IP`. Quick Tunnel URL и signed token не записываются в repository; после теста tunnel останавливается. Эта проверка не создаёт DNS records и не использует Telegram transport.
+
 Настоящие PostgreSQL integration/restart/recovery tests запускаются только с отдельным URL безопасной тестовой базы:
 
 ```bash
@@ -176,6 +194,7 @@ FUNNEL_TEST_DATABASE_URL='postgresql://localhost/men_funnel_test' npm --prefix s
 - В `memory`-режиме restart по-прежнему стирает состояние; в `postgres`-режиме users, attribution, events, applications и `update_id` сохраняются.
 - При ошибке текущего шага немедленный webhook-flow останавливается. Подготовленные зависимые operations остаются заблокированными до подтверждённой доставки предыдущего шага; ручной recovery продолжает цепочку только по безопасным состояниям.
 - Telegram update сохраняет исходный `failed`/`error_stage`; recovery имеет отдельную operation timeline и не переписывает исторический результат webhook.
-- Webinar route работает только в isolated server. Production hosting, CRM integration и реальный video provider не подключены; fixture использует 40-секундный local media source.
+- Webinar route работает только в isolated server. Production hosting, CRM integration и реальный video provider не подключены; fixture использует защищённый 40-секундный local media source.
+- Media token защищает доступ к fixture, но не является DRM. До реального provider остаётся определить его playback authorization, срок URL/session и серверный способ обновления доступа для длинного видео.
 - Recovery и scheduler остаются ручными. Operator UI, ручное разрешение `delivery_unknown`, alerts и automatic runner отсутствуют.
 - Telegram Bot API не поддерживает idempotency key для `sendMessage`. Если provider принял сообщение, а процесс умер до сохранения receipt, операция намеренно остаётся `delivery_unknown`; автоматический дубль не создаётся.

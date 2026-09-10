@@ -17,6 +17,8 @@ const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
 const maxNameLength = 200;
 const tokenTtlSeconds = 60 * 60;
+const minimumMediaTokenTtlSeconds = 15 * 60;
+const mediaPlaybackBufferSeconds = 10 * 60;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const defaultEntryNotice = Object.freeze({
   version: 'men_webinar_v1-entry-notice-1',
@@ -159,12 +161,13 @@ export function createMenWebinarFlow({
     return { user, payload: result.payload };
   }
 
-  function issueToken({ user, purpose }) {
+  function issueToken({ user, purpose, videoId = null, ttlSeconds = tokenTtlSeconds }) {
     const token = signFunnelToken({
       purpose,
       userRef: user.id,
       funnelId: user.funnelId,
-      ttlSeconds: tokenTtlSeconds,
+      videoId,
+      ttlSeconds,
       secret: signingSecret,
       now: () => now().getTime(),
     });
@@ -172,8 +175,8 @@ export function createMenWebinarFlow({
     return {
       token,
       purpose,
-      expiresInSeconds: tokenTtlSeconds,
-      expiresAt: new Date((issuedAt + tokenTtlSeconds) * 1000).toISOString(),
+      expiresInSeconds: ttlSeconds,
+      expiresAt: new Date((issuedAt + ttlSeconds) * 1000).toISOString(),
     };
   }
 
@@ -200,6 +203,14 @@ export function createMenWebinarFlow({
       ...token,
       url: `${applicationReference}${separator}t=${encodeURIComponent(token.token)}`,
     };
+  }
+
+  function issueMediaToken(user, webinar) {
+    const ttlSeconds = Math.max(
+      minimumMediaTokenTtlSeconds,
+      Math.ceil(Number(webinar.durationSeconds)) + mediaPlaybackBufferSeconds,
+    );
+    return issueToken({ user, purpose: 'media', videoId: webinar.videoId, ttlSeconds });
   }
 
   async function recordUserEvent({ userId, funnelId, eventType, metadata = {}, idempotencyKey = null }) {
@@ -580,7 +591,7 @@ export function createMenWebinarFlow({
       userId: user.id,
       funnelId: payload.funnel_id,
       purpose: payload.purpose,
-      webinar: webinar ? { id: webinar.id, route: webinar.route, videoProvider: webinar.videoProvider, videoId: webinar.videoId, videoUrl: webinar.videoUrl, durationSeconds: webinar.durationSeconds } : null,
+      webinar: webinar ? { id: webinar.id, route: webinar.route, videoProvider: webinar.videoProvider, videoId: webinar.videoId, durationSeconds: webinar.durationSeconds } : null,
     };
   }
 
@@ -597,7 +608,29 @@ export function createMenWebinarFlow({
       metadata: { video_id: session.webinar.videoId },
       idempotencyKey: `webinar:${session.userId}:${session.webinar.id}:page-view`,
     });
-    return session;
+    const user = await store.getUser(session.userId);
+    const media = issueMediaToken(user, session.webinar);
+    return {
+      ...session,
+      webinar: {
+        ...session.webinar,
+        videoUrl: `/v1/webinar/media/${encodeURIComponent(session.webinar.videoId)}?mt=${encodeURIComponent(media.token)}`,
+      },
+    };
+  }
+
+  async function authorizeWebinarMedia({ token, videoId }) {
+    const { user, payload } = await resolveToken(token, 'media');
+    if (payload.video_id !== videoId) throw new FunnelError('invalid_token', 'Invalid media token', 401);
+    const webinar = await store.findWebinarForFunnel(user.funnelId);
+    if (!webinar || webinar.status !== 'active' || webinar.videoId !== videoId) {
+      throw new FunnelError('media_unavailable', 'Media is unavailable', 404);
+    }
+    return {
+      userId: user.id,
+      funnelId: user.funnelId,
+      webinar: { id: webinar.id, videoId: webinar.videoId, videoProvider: webinar.videoProvider },
+    };
   }
 
   async function ingestWebinarTelemetry({ token, clientSessionId, requestId, action, positionSeconds, durationSeconds }) {
@@ -782,6 +815,7 @@ export function createMenWebinarFlow({
     handleTelegramStart,
     createWebinarSession,
     openWebinarPage,
+    authorizeWebinarMedia,
     ingestWebinarTelemetry,
     recordWebinarCta,
     recordApplicationStarted,

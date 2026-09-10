@@ -2,10 +2,10 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { FunnelError } from '../flow/men-webinar.mjs';
 import { renderWebinarDeniedPage, renderWebinarPage } from '../webinar/page.mjs';
+import { createLocalFixtureMediaSource } from '../webinar/local-media-source.mjs';
 
 const maxBodyBytes = 64 * 1024;
 const playerClient = readFileSync(new URL('../webinar/player-client.js', import.meta.url));
-const stagingMedia = readFileSync(new URL('../../assets/staging-webinar-fixture.mp4', import.meta.url));
 
 async function readJson(request) {
   const chunks = [];
@@ -27,6 +27,8 @@ function sendJson(response, status, body) {
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff',
   });
   response.end(JSON.stringify(body));
 }
@@ -43,38 +45,18 @@ function sendWebinarDocument(response, status, body) {
   response.end(body);
 }
 
-function sendStagingMedia(request, response) {
-  const media = stagingMedia;
-  const range = request.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
-  if (!range) {
-    response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': media.length, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600' });
-    return response.end(media);
-  }
-  const start = range[1] ? Number(range[1]) : 0;
-  const end = range[2] ? Math.min(Number(range[2]), media.length - 1) : media.length - 1;
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= media.length) {
-    response.writeHead(416, { 'content-range': `bytes */${media.length}` });
-    return response.end();
-  }
-  response.writeHead(206, {
-    'content-type': 'video/mp4', 'content-length': end - start + 1,
-    'content-range': `bytes ${start}-${end}/${media.length}`, 'accept-ranges': 'bytes',
-    'cache-control': 'private, max-age=3600',
-  });
-  return response.end(media.subarray(start, end + 1));
-}
-
 function requireLocalAdmin(request, adminKey) {
   if (!adminKey || request.headers['x-admin-local-key'] !== adminKey) throw new FunnelError('unauthorized', 'Unauthorized', 401);
 }
 
-export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey = null }) {
+export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey = null, mediaSource = createLocalFixtureMediaSource() }) {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const method = request.method ?? 'GET';
+      const sameOriginWebinarSurface = url.pathname.startsWith('/webinar/') || url.pathname.startsWith('/v1/webinar/');
 
-      if (mode === 'local') {
+      if (mode === 'local' && !sameOriginWebinarSurface) {
         response.setHeader('access-control-allow-origin', '*');
         response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
         response.setHeader('access-control-allow-headers', 'content-type, x-telegram-bot-api-secret-token, x-admin-local-key');
@@ -90,8 +72,11 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
         return response.end(playerClient);
       }
 
-      if (method === 'GET' && url.pathname === '/v1/webinar/media/lab-men-funnel-video-fixture') {
-        return sendStagingMedia(request, response);
+      const mediaMatch = url.pathname.match(/^\/v1\/webinar\/media\/([a-z0-9_-]{1,120})$/i);
+      if (['GET', 'HEAD'].includes(method) && mediaMatch) {
+        const authorization = await flow.authorizeWebinarMedia({ token: url.searchParams.get('mt'), videoId: mediaMatch[1] });
+        if (!mediaSource.canServe(authorization.webinar)) throw new FunnelError('media_unavailable', 'Media is unavailable', 404);
+        return mediaSource.send(request, response, authorization);
       }
 
       const webinarPageMatch = url.pathname.match(/^\/webinar\/([a-z0-9_-]{1,120})$/i);

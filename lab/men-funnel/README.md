@@ -11,9 +11,9 @@
 
 `Telegram Start → entry notice → bonus delivery → webinar token → webinar events → application token → application`
 
-Для webinar используется token-protected route isolated server и 40-секундный local media fixture. Реальный Telegram token в репозитории не хранится. По умолчанию delivery выполняется через dev/mock transport; отдельный staging может явно включить Bot API и PostgreSQL.
+Для webinar используется token-protected route isolated server и 40-секундный local media fixture. После проверки webinar access server выдаёт отдельный короткоживущий `media_token`; MP4 без него не доступен. Реальный Telegram token в репозитории не хранится. По умолчанию delivery выполняется через dev/mock transport; отдельный staging может явно включить Bot API и PostgreSQL.
 
-Lab Astro screen теперь только передаёт signed token в isolated server route. Player telemetry, milestones и CTA обрабатываются server-side.
+Lab Astro screen теперь только передаёт signed token в isolated server route. Player получает same-origin Range source через video-bound media token; telemetry, milestones и CTA обрабатываются server-side. Реальный provider остаётся заменяемым adapter и не подключён.
 
 Целевая event model использует `bonus_delivery_attempted`, `bonus_sent` и `bonus_delivery_failed`; событие `bonus_received` в новом vertical slice не используется. Webinar и application используют разные purpose-bound signed token.
 

@@ -7,14 +7,18 @@ function signatureFor(encodedPayload, secret) {
   return createHmac('sha256', secret).update(encodedPayload).digest('base64url');
 }
 
-export function signFunnelToken({ purpose, userRef, funnelId, ttlSeconds = 60 * 60, secret, now = Date.now }) {
+export function signFunnelToken({ purpose, userRef, funnelId, videoId = null, ttlSeconds = 60 * 60, secret, now = Date.now }) {
   if (!secret) throw new Error('TOKEN_SIGNING_SECRET is required');
   if (!purpose || !userRef || !funnelId) throw new Error('Token purpose, user reference and funnel ID are required');
+  if (videoId != null && (typeof videoId !== 'string' || !/^[a-z0-9_-]{1,120}$/i.test(videoId))) {
+    throw new Error('Token video ID is invalid');
+  }
   const issuedAt = Math.floor(now() / 1000);
   const payload = {
     purpose,
     funnel_id: funnelId,
     user_ref: userRef,
+    ...(videoId == null ? {} : { video_id: videoId }),
     issued_at: issuedAt,
     expires_at: issuedAt + ttlSeconds,
   };
@@ -38,6 +42,9 @@ export function verifyFunnelToken(token, { purpose, secret, now = Date.now } = {
     const payload = JSON.parse(decode(encodedPayload));
     const current = Math.floor(now() / 1000);
     if (!payload.purpose || !payload.user_ref || !payload.funnel_id || !Number.isInteger(payload.issued_at) || !Number.isInteger(payload.expires_at)) {
+      return { ok: false, code: 'invalid_token' };
+    }
+    if (payload.video_id != null && (typeof payload.video_id !== 'string' || !/^[a-z0-9_-]{1,120}$/i.test(payload.video_id))) {
       return { ok: false, code: 'invalid_token' };
     }
     if (purpose && payload.purpose !== purpose) {

@@ -6,7 +6,7 @@ import { localFixture } from '../src/data/local-fixture.mjs';
 import { createMenWebinarFlow } from '../src/flow/men-webinar.mjs';
 import { createDevTelegramTransport } from '../src/telegram/transport.mjs';
 import { createApp } from '../src/http/app.mjs';
-import { signFunnelToken } from '../src/security/signed-tokens.mjs';
+import { signFunnelToken, verifyFunnelToken } from '../src/security/signed-tokens.mjs';
 
 const signingSecret = 'webinar-page-test-secret';
 
@@ -47,18 +47,84 @@ test('signed webinar page validates access without making the token one-time', a
   t.after(() => server.app.close());
   const started = await start(server, 51_001);
   const path = `/webinar/lab-men-funnel-video-fixture?t=${encodeURIComponent(started.webinar.token)}`;
+  let mediaPath;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await fetch(`${server.baseUrl}${path}`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
     assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
-    assert.match(await response.text(), /data-webinar-root/);
+    const html = await response.text();
+    assert.match(html, /data-webinar-root/);
+    const source = html.match(/data-playback-source="([^"]+)"/)?.[1];
+    assert.ok(source);
+    mediaPath = source;
   }
   assert.equal((await server.store.listUserEvents(started.userId)).filter((event) => event.eventType === 'webinar_page_view').length, 1);
-  const range = await fetch(`${server.baseUrl}/v1/webinar/media/lab-men-funnel-video-fixture`, { headers: { range: 'bytes=0-99' } });
+  const range = await fetch(`${server.baseUrl}${mediaPath}`, { headers: { range: 'bytes=0-99' } });
   assert.equal(range.status, 206);
   assert.equal(range.headers.get('content-type'), 'video/mp4');
+  assert.equal(range.headers.get('accept-ranges'), 'bytes');
+  assert.equal(range.headers.get('content-range'), 'bytes 0-99/28891');
+  assert.equal(range.headers.get('content-length'), '100');
+  assert.equal(range.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(range.headers.get('access-control-allow-origin'), null);
   assert.equal((await range.arrayBuffer()).byteLength, 100);
+});
+
+test('media source requires a short-lived video-bound media token and handles ranges', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_008);
+  const pageResponse = await fetch(`${server.baseUrl}/webinar/lab-men-funnel-video-fixture?t=${encodeURIComponent(started.webinar.token)}`);
+  const html = await pageResponse.text();
+  const mediaPath = html.match(/data-playback-source="([^"]+)"/)?.[1];
+  const mediaUrl = new URL(mediaPath, server.baseUrl);
+  const mediaToken = mediaUrl.searchParams.get('mt');
+  assert.ok(mediaToken);
+  assert.notEqual(mediaToken, started.webinar.token);
+  const verified = verifyFunnelToken(mediaToken, { purpose: 'media', secret: signingSecret, now: () => server.clock.value.getTime() });
+  assert.equal(verified.ok, true);
+  assert.equal(verified.payload.user_ref, started.userId);
+  assert.equal(verified.payload.funnel_id, started.funnelId);
+  assert.equal(verified.payload.video_id, localFixture.webinar.videoId);
+  assert.ok(verified.payload.expires_at - verified.payload.issued_at >= 15 * 60);
+
+  const full = await fetch(mediaUrl);
+  assert.equal(full.status, 200);
+  assert.equal(Number(full.headers.get('content-length')), 28_891);
+  await full.body.cancel();
+  const suffix = await fetch(mediaUrl, { headers: { range: 'bytes=-32' } });
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers.get('content-range'), 'bytes 28859-28890/28891');
+  assert.equal((await suffix.arrayBuffer()).byteLength, 32);
+  const openEnded = await fetch(mediaUrl, { headers: { range: 'bytes=28880-' } });
+  assert.equal(openEnded.status, 206);
+  assert.equal(openEnded.headers.get('content-length'), '11');
+  const head = await fetch(mediaUrl, { method: 'HEAD', headers: { range: 'bytes=0-9' } });
+  assert.equal(head.status, 206);
+  assert.equal(head.headers.get('content-length'), '10');
+  const invalidRange = await fetch(mediaUrl, { headers: { range: 'bytes=99999-' } });
+  assert.equal(invalidRange.status, 416);
+  assert.equal(invalidRange.headers.get('content-range'), 'bytes */28891');
+});
+
+test('media endpoint fails closed for missing, wrong-purpose, wrong-video, wrong-funnel and expired tokens', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_009);
+  const basePath = '/v1/webinar/media/lab-men-funnel-video-fixture';
+  const application = signFunnelToken({ purpose: 'application', userRef: started.userId, funnelId: started.funnelId, secret: signingSecret, now: () => server.clock.value.getTime() });
+  const otherVideo = signFunnelToken({ purpose: 'media', userRef: started.userId, funnelId: started.funnelId, videoId: 'other-video', secret: signingSecret, now: () => server.clock.value.getTime() });
+  const otherFunnel = signFunnelToken({ purpose: 'media', userRef: started.userId, funnelId: 'other-funnel', videoId: localFixture.webinar.videoId, secret: signingSecret, now: () => server.clock.value.getTime() });
+  const expired = signFunnelToken({ purpose: 'media', userRef: started.userId, funnelId: started.funnelId, videoId: localFixture.webinar.videoId, ttlSeconds: 60, secret: signingSecret, now: () => server.clock.value.getTime() - 120_000 });
+  for (const token of [null, started.webinar.token, application, otherVideo, otherFunnel, expired]) {
+    const suffix = token == null ? '' : `?mt=${encodeURIComponent(token)}`;
+    const response = await fetch(`${server.baseUrl}${basePath}${suffix}`);
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8');
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+    assert.equal((await response.json()).ok, false);
+  }
 });
 
 test('expired, invalid and application tokens cannot open webinar or create events', async (t) => {

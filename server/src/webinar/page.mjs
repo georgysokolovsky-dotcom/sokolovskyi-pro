@@ -7,6 +7,7 @@ function escapeHtml(value) {
 export function renderWebinarPage({ webinar }) {
   const videoId = escapeHtml(webinar.videoId);
   const mediaUrl = escapeHtml(webinar.videoUrl);
+  const videoProvider = escapeHtml(webinar.videoProvider);
   const duration = Number(webinar.durationSeconds);
   return `<!doctype html>
 <html lang="ru">
@@ -14,6 +15,7 @@ export function renderWebinarPage({ webinar }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
+  <link rel="icon" href="data:,">
   <title>Видеоразбор — PRO Мужчин</title>
   <style>
     :root{color-scheme:dark;--bg:#101311;--card:#1a201c;--text:#f5f3eb;--muted:#b9beb8;--accent:#d9b36c}
@@ -26,12 +28,12 @@ export function renderWebinarPage({ webinar }) {
   </style>
 </head>
 <body>
-  <main data-webinar-root data-video-id="${videoId}" data-duration="${duration}">
+  <main data-webinar-root data-video-id="${videoId}" data-video-provider="${videoProvider}" data-playback-source="${mediaUrl}" data-duration="${duration}">
     <div class="eyebrow">Закрытый видеоразбор</div>
     <h1>Видеоразбор</h1>
     <p>Прогресс сохраняется на сервере. Можно поставить запись на паузу и вернуться по той же действующей ссылке.</p>
     <section class="card">
-      <video controls playsinline preload="metadata" data-player src="${mediaUrl}"></video>
+      <video controls playsinline preload="metadata" data-player></video>
       <p class="progress" data-progress>Просмотр ещё не начат.</p>
       <div class="cta">
         <p>Если хотите разобрать свою ситуацию, перейдите к короткой заявке. В ней остаются только имя и описание ситуации.</p>
@@ -46,5 +48,5 @@ export function renderWebinarPage({ webinar }) {
 }
 
 export function renderWebinarDeniedPage() {
-  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Ссылка недействительна</title></head><body><main><h1>Ссылка недействительна или истекла</h1><p>Запросите новую ссылку в Telegram.</p></main></body></html>';
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><link rel="icon" href="data:,"><title>Ссылка недействительна</title></head><body><main><h1>Ссылка недействительна или истекла</h1><p>Запросите новую ссылку в Telegram.</p></main></body></html>';
 }

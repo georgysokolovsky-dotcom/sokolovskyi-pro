@@ -87,7 +87,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `bonus_id` и `bonus_version` — идентификатор и версия bonus.
 - `webinar_id` — идентификатор lab или реального webinar.
 - `application_id` — идентификатор заявки.
-- `token.purpose` — назначение signed token: `webinar` или `application`.
+- `token.purpose` — назначение signed token: `webinar`, технический `media` или `application`.
 
 В URL, логах и аналитике нельзя раскрывать `telegram_user_id`, email, телефон, token или секреты. В token передаётся только непрозрачная ссылка на внутреннего пользователя.
 
@@ -133,6 +133,7 @@ article → landing → Telegram deep link
 
 - Telegram Start создаёт связь с funnel и source;
 - server выдаёт отдельный `webinar_token` для webinar;
+- после проверки страницы server выдаёт короткоживущий `media_token` для конкретного video source;
 - CTA к application получает отдельный `application_token`;
 - token привязан к `user_id`, `funnel_id` и purpose, но не содержит Telegram ID;
 - webinar token не даёт полномочий application token.
@@ -581,9 +582,9 @@ Scheduler запускается только вручную. Он атомар�
 
 ## E. Webinar
 
-### Два purpose-bound token
+### Purpose-bound token
 
-В v1 используются два разных signed token.
+В v1 используются два пользовательских access token и один внутренний playback token.
 
 #### `webinar_token`
 
@@ -627,17 +628,35 @@ Scheduler запускается только вручную. Он атомар�
 
 Webinar token не принимается application endpoint автоматически. Application token не открывает webinar endpoint.
 
+#### `media_token`
+
+Разрешает только получить конкретный playback source после уже подтверждённого webinar access:
+
+```json
+{
+  "purpose": "media",
+  "funnel_id": "men_webinar_v1",
+  "user_ref": "opaque-internal-user-reference",
+  "video_id": "lab-men-funnel-video-fixture",
+  "issued_at": 0,
+  "expires_at": 0
+}
+```
+
+Он HMAC-signed, привязан к user/funnel/video, не хранится в PostgreSQL и не принимается webinar, telemetry или application endpoints. Default TTL равен большему из 15 минут и video duration плюс 10 минут. Повторное открытие действующей webinar-ссылки выпускает новый media token.
+
 Каждый token подписывается server secret, имеет TTL и проверяется по purpose, funnel, user reference, issued time и expiry. Telegram ID открытым текстом в URL не передаётся. Полноценная authentication system сейчас не строится.
 
 ### Создание и передача token
 
 1. После подтверждённого Telegram Start и доступного webinar server подготавливает `webinar_token`.
 2. Telegram invite содержит ссылку с webinar token или ссылку на endpoint, который выдаёт такой URL в рамках разрешённого flow.
-3. После webinar CTA server создаёт отдельный `application_token`.
-4. Follow-up к application использует только application token.
-5. Raw token не попадает в логи, CRM timeline или analytics.
+3. После проверки webinar page server выпускает отдельный `media_token` и встраивает защищённый playback URL.
+4. После webinar CTA server создаёт отдельный `application_token`.
+5. Follow-up к application использует только application token.
+6. Raw token не попадает в логи, CRM timeline или analytics.
 
-Текущая реализация выдаёт отдельные HMAC token с purpose `webinar` и `application`. Webinar token не принимается application endpoint, application token не открывает webinar session.
+Текущая реализация выдаёт отдельные HMAC token с purpose `webinar`, `media` и `application`. Ни один purpose не заменяет другой.
 
 ### Lab webinar
 
@@ -646,7 +665,7 @@ Webinar token не принимается application endpoint автомати�
 ```text
 webinar_id: lab-men-funnel-video-fixture
 video_provider: native-html5
-video_url: /v1/webinar/media/lab-men-funnel-video-fixture
+video_url: internal local fixture reference
 duration_seconds: 40
 status: active
 ```
@@ -687,6 +706,24 @@ Telegram button открывает signed URL. На funnel-странице:
 
 Token не выводится в интерфейсе и не включается в аналитику.
 
+### Media authorization и Range
+
+Webinar page не получает публичный MP4 URL. После валидного `webinar_token` server создаёт короткоживущий media URL вида `/v1/webinar/media/:videoId?mt=<media_token>`. Media endpoint fail closed проверяет signature, `purpose=media`, expiry, persistent user, funnel, `video_id`, active webinar и соответствие URL path конфигурации. Webinar/application token и media token другого video/funnel отклоняются.
+
+Local MP4 читается через file stream, а не копируется целиком в память на каждый request. Поддержаны `200`, `HEAD`, одиночные byte ranges, `206`, suffix/open-ended range и `416`. Ответы имеют точные `Content-Length`/`Content-Range`, `Accept-Ranges: bytes`, MIME `video/mp4`, private cache, `Referrer-Policy: no-referrer` и `X-Content-Type-Options: nosniff`. Page, media, telemetry и CTA работают same-origin; wildcard CORS для webinar surface не используется.
+
+### Video provider adapter boundary
+
+Browser adapter должен:
+
+- получить только разрешённый playback source от server;
+- создать native или provider player;
+- сообщать play, pause, seek, heartbeat/timeupdate и ended;
+- отдавать currentTime, duration, paused и ended;
+- не создавать funnel milestones самостоятельно.
+
+Будущий server adapter отвечает за разрешённый playback source и provider access. Server-side progress engine не зависит от provider: он принимает ограниченную telemetry, объединяет watched ranges в PostgreSQL и сам создаёт milestones.
+
 ### Webinar events
 
 | Событие | Когда фиксируется | Правило |
@@ -710,6 +747,12 @@ Token не выводится в интерфейсе и не включаетс
 Player передаёт только `play`, `heartbeat`, `pause`, `seek`, `ended`, playhead и duration. Server хранит последнюю позицию и server timestamp каждой вкладки. Участок засчитывается, если player был в состоянии play, playhead сдвинулся вперёд и его шаг не превышает server elapsed time с tolerance 2 секунды и gap limit 15 секунд.
 
 `seek` не добавляет watched time и только задаёт новую baseline. `pause` закрывает допустимый участок; heartbeat после pause не возобновляет play. Resume начинается с нового `play`. Общий progress — union уникальных watched ranges всех sessions, поэтому повторный просмотр и две вкладки не завышают результат.
+
+### Browser E2E
+
+Отдельный Playwright test запускает установленный Google Chrome, MEN server с fake Telegram transport и уникальную PostgreSQL schema. В настоящем HTML5 player он проверяет загрузку защищённого MP4, полный просмотр до completion, Range responses, refresh, две вкладки, seek protection, scheduler transitions, CTA, application token и переход в application flow. Негативный browser-сценарий проверяет отсутствие/expiry/wrong purpose webinar token и отсутствие/expiry/wrong purpose/wrong video/wrong funnel media token. Критический E2E не skipped и не обращается к analytics или Telegram.
+
+Тот же сценарий допускает временный HTTPS-origin через Cloudflare Quick Tunnel. URL передаётся только process environment, не записывается в repository и удаляется остановкой tunnel. Permanent tunnel, DNS record и Cloudflare zone configuration не создаются.
 
 ## F. Follow-up и Telegram automation
 
@@ -873,7 +916,7 @@ telegram_lead
 
 ### Служебные token данные
 
-CRM видит purpose, issued/expiry timestamps и связанные event IDs, но не хранит raw `webinar_token` или `application_token`.
+CRM видит purpose, issued/expiry timestamps и связанные event IDs, но не хранит raw `webinar_token`, `media_token` или `application_token`.
 
 ## I. Итоговая attribution model
 
@@ -1008,7 +1051,7 @@ traffic source
 - данные третьих лиц, не нужные для принятия заявки;
 - Telegram bot token;
 - signing secret, webhook secret и admin secret;
-- raw `webinar_token` или `application_token` в логах, CRM и analytics;
+- raw `webinar_token`, `media_token` или `application_token` в логах, CRM и analytics;
 - raw Telegram update целиком;
 - fingerprinting и долгоживущий tracking identifier;
 - контакты устройства и данные адресной книги;
@@ -1066,8 +1109,9 @@ application without further relationship: 12 months
 - конфигурируемые warming rules с гипотезой 0 / 15 минут / 3 часа / 6 часов / 2 часа;
 - `/stop` и `/delete` request path;
 - configurable retention policy с предварительными dev-значениями;
-- два purpose-bound token: `webinar_token` и `application_token`;
-- token-protected lab webinar page, native player adapter, local media fixture и server-derived viewing events;
+- три purpose-bound token: `webinar_token`, short-lived `media_token` и `application_token`;
+- token-protected lab webinar page, protected Range-streamed local media fixture, native player adapter и server-derived viewing events;
+- Playwright/Chrome E2E с отдельной PostgreSQL schema для real playback, scheduler, CTA, refresh, tabs и негативных token/seek cases;
 - application только с обязательными `name` и `situation`;
 - нейтральное предупреждение о персональных данных третьих лиц;
 - минимальный локальный CRM view с двумя attribution-полями и timeline;
@@ -1107,7 +1151,7 @@ application without further relationship: 12 months
 - окончательный title, promise и описание webinar;
 - длительность и формат видео;
 - реальный provider, URL/route и правила возврата на сайт;
-- техническая возможность измерять 25/50/75/90% и `webinar_completed`;
+- способ получить у provider разрешённый playback source и player events, совместимые с существующим adapter;
 - финальный текст CTA к application;
 - правила, по которым follow-up отличается для разных уровней просмотра.
 
@@ -1141,11 +1185,11 @@ application without further relationship: 12 months
 - `bonus_delivery_attempted`, `bonus_sent`, `bonus_delivery_failed` вместо предположения о прочтении;
 - `webinar_invite_delivery_attempted`, `webinar_invite_sent`, `webinar_invite_delivery_failed` без подмены факта доставки фактом создания token;
 - dev transport по умолчанию, Bot API-compatible adapter без live-активации и configurable `WEBINAR_BASE_URL`;
-- два purpose-bound token с разными полномочиями;
+- три purpose-bound token с разными полномочиями, включая video-bound media access;
 - только `name` и `situation` как baseline application fields;
 - config-driven warming и заданные MVP-задержки;
 - классы `funnel_service` и `promotional`;
 - `/stop`, `/delete` и configurable retention;
 - разделение lab-архитектуры и production/legal решений.
 
-Код, frontend, backend, tests, dependencies, публичный Astro-сайт и production в рамках подготовки этой версии документа не изменяются.
+Текущий vertical slice изменяет только `server/` и `lab/men-funnel/`. Публичный Astro `src/`, production website, analytics, DNS, Cloudflare zone и deploy остаются неизменными.

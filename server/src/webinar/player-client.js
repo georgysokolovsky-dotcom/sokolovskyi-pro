@@ -7,6 +7,19 @@
   const token = new URLSearchParams(location.search).get('t');
   if (!root || !player || !token || !crypto.randomUUID) return;
 
+  function createNativePlayerAdapter(element, playbackSource) {
+    element.src = playbackSource;
+    return {
+      on: (event, listener) => element.addEventListener(event, listener),
+      currentTime: () => Number(element.currentTime),
+      duration: () => Number(element.duration || root.dataset.duration),
+      paused: () => element.paused,
+      ended: () => element.ended,
+    };
+  }
+
+  const adapter = createNativePlayerAdapter(player, root.dataset.playbackSource);
+
   const clientSessionId = crypto.randomUUID();
   let queue = Promise.resolve();
   let lastHeartbeatPosition = 0;
@@ -28,8 +41,8 @@
   }
 
   function telemetry(action) {
-    const positionSeconds = Number(player.currentTime);
-    const durationSeconds = Number(player.duration || root.dataset.duration);
+    const positionSeconds = adapter.currentTime();
+    const durationSeconds = adapter.duration();
     if (!Number.isFinite(positionSeconds) || !Number.isFinite(durationSeconds)) return;
     queue = queue.then(() => post('/v1/webinar/telemetry', {
       clientSessionId, action, positionSeconds, durationSeconds,
@@ -39,19 +52,19 @@
     }).catch(() => { error.hidden = false; });
   }
 
-  player.addEventListener('play', () => telemetry('play'));
-  player.addEventListener('timeupdate', () => {
-    if (player.currentTime - lastHeartbeatPosition < 4) return;
-    lastHeartbeatPosition = player.currentTime;
+  adapter.on('play', () => telemetry('play'));
+  adapter.on('timeupdate', () => {
+    if (adapter.currentTime() - lastHeartbeatPosition < 4) return;
+    lastHeartbeatPosition = adapter.currentTime();
     telemetry('heartbeat');
   });
-  player.addEventListener('pause', () => { if (!player.ended) telemetry('pause'); });
-  player.addEventListener('seeked', () => {
-    lastHeartbeatPosition = player.currentTime;
+  adapter.on('pause', () => { if (!adapter.ended()) telemetry('pause'); });
+  adapter.on('seeked', () => {
+    lastHeartbeatPosition = adapter.currentTime();
     telemetry('seek');
-    if (!player.paused) telemetry('play');
+    if (!adapter.paused()) telemetry('play');
   });
-  player.addEventListener('ended', () => telemetry('ended'));
+  adapter.on('ended', () => telemetry('ended'));
 
   cta?.addEventListener('click', () => {
     cta.setAttribute('aria-busy', 'true');
