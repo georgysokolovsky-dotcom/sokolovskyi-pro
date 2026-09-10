@@ -7,8 +7,9 @@
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
     "test": "node --test",
-    "test:postgres": "node --test tests/postgres-store.test.mjs",
+    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs",
     "migrate": "node scripts/migrate.mjs",
+    "recovery": "node scripts/recovery.mjs",
     "staging:webhook": "node scripts/telegram-webhook.mjs",
     "staging:verify": "node scripts/staging-verify.mjs"
   },

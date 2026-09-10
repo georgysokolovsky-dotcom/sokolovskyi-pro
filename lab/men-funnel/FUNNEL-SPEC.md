@@ -53,6 +53,8 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `server/src/store/memory-store.mjs` — in-memory хранилище для lab;
 - `server/src/store/postgres-store.mjs` — persistent implementation того же store contract;
 - `server/migrations/001_core.sql` — initial PostgreSQL schema с Telegram update state и database-level idempotency;
+- `server/migrations/002_delivery_operations.sql` — persistent delivery operations, lease и recovery state machine;
+- `server/migrations/003_delivery_dependencies.sql` — порядок зависимых шагов delivery после restart;
 - `server/tests/vertical-slice.test.mjs` — проверка пути от Telegram Start до application.
 
 В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Реальный видеоматериал не подключён.
@@ -331,7 +333,23 @@ start_parameter
 
 В `memory`-режиме защита работает только внутри одного процесса. В `postgres`-режиме `telegram_updates` имеет primary key `(funnel_id, update_id)`: первая транзакция атомарно регистрирует update, пользователя, attribution, Telegram profile и `telegram_start`. Concurrent и post-restart дубли не запускают delivery повторно.
 
-Update хранит `processing`, `completed` или `failed`, timestamps, `error_stage` и `error_code`. Telegram HTTP не входит в DB transaction; delivery attempted/sent/failed фиксируются отдельными events. Автоматический retry для `failed` и зависшего `processing` отложен.
+Update хранит `processing`, `completed` или `failed`, timestamps, `error_stage` и `error_code`. Telegram HTTP не входит в DB transaction; delivery attempted/sent/failed фиксируются events и отдельными persistent operations. Ручной recovery не переписывает исторический статус update.
+
+### Persistent delivery recovery
+
+Для нового `/start` заранее создаётся зависимая цепочка операций:
+
+```text
+entry_notice → bonus → webinar_invite
+```
+
+Каждая запись содержит `operation_key`, `funnel_id`, `user_id`, `telegram_update_id`, технический recipient, тип сообщения, безопасный descriptor конфигурации, attempt counter, max attempts, next retry, lease, provider receipt и нормализованную ошибку. Signed webinar token и полный URL в operation не сохраняются: invite строится непосредственно перед безопасной попыткой отправки.
+
+Состояния: `pending`, `processing`, `delivered`, `retryable_failed`, `delivery_unknown`, `dead_letter`, `suppressed`. Claim выполняется атомарно через PostgreSQL row lock; зависимый шаг доступен только после `delivered` предыдущего. Истёкший lease можно повторно взять лишь когда HTTP attempt ещё не был отмечен. Если запрос уже мог уйти провайдеру, операция закрывается в `delivery_unknown` и автоматически не повторяется.
+
+Retry разрешён только для явного HTTP `429`/`5xx`, с exponential backoff и max attempts. HTTP `4xx`, API rejection и ошибки конфигурации переходят в `dead_letter`; timeout, network/malformed response — в `delivery_unknown`. Подтверждённый provider receipt запрещает повторную отправку при restart, повторном update и любом следующем запуске executor.
+
+Перед каждой реальной попыткой заново проверяются `telegram_stop`, deletion request и `sold`. При запрете operation становится `suppressed`, transport не вызывается. Recovery запускается только вручную командой `npm --prefix server run recovery`; cron и scheduler отсутствуют.
 
 ### Команды управления
 
@@ -700,7 +718,7 @@ Lifecycle executor должен работать поверх сохранённ
 
 Перед каждым warming или reactivation send executor заново проверяет suppression state. Автоматически исключаются покупатели, `telegram_stop`, deletion requested/processing/completed, недоступный Telegram channel и любые будущие legal/compliance запреты. Отмена имеет приоритет над уже поставленной задачей.
 
-На текущем этапе это только архитектурное требование. Scheduler, warming executor, recovery executor и reactivation messages не реализуются и не запускаются.
+На текущем этапе Lifecycle / Reactivation остаётся только архитектурным требованием. Scheduler, warming executor и reactivation messages не реализуются и не запускаются. Ручной delivery recovery обслуживает только уже созданные операции входной цепочки и не создаёт lifecycle-сообщения.
 
 ## G. Application
 
@@ -1048,7 +1066,7 @@ application without further relationship: 12 months
 - analytics/cookies и изменение legal pages;
 - DNS, hosting, deploy и production secrets;
 - автоматические CRM-статусы после отправки заявки;
-- scheduler, recovery executor и Lifecycle / Reactivation executor;
+- scheduler, warming executor и Lifecycle / Reactivation executor;
 - полноценная multi-touch attribution;
 - сложная authentication system.
 

@@ -196,6 +196,11 @@ test('bonus failure records attempted and failed without claiming sent', async (
   assert.equal(lead.body.lead.bonus.status, 'failed');
   assert.equal(started.body.webinar, null);
   assert.equal(started.body.webinarInviteDelivery.status, 'not_started');
+  assert.deepEqual((await server.store.listDeliveryOperations()).map((item) => [item.messageType, item.status]), [
+    ['entry_notice', 'delivered'],
+    ['bonus', 'dead_letter'],
+    ['webinar_invite', 'pending'],
+  ]);
 });
 
 test('entry notice failure stops the remaining message sequence', async (t) => {
@@ -218,6 +223,7 @@ test('entry notice failure stops the remaining message sequence', async (t) => {
   assert.deepEqual(server.store.events.map((item) => item.eventType), ['telegram_start']);
   assert.equal(server.store.getTelegramUpdate('men_webinar_v1', 22).status, 'failed');
   assert.equal(server.store.getTelegramUpdate('men_webinar_v1', 22).errorStage, 'entry_notice');
+  assert.deepEqual((await server.store.listDeliveryOperations()).map((item) => item.status), ['dead_letter', 'pending', 'pending']);
 });
 
 test('webinar invite failure is recorded without claiming invite sent', async (t) => {

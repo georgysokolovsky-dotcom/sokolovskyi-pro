@@ -11,6 +11,8 @@
 
 `Telegram Start → entry notice → bonus delivery → webinar token → webinar events → application token → application`
 
-Для видео используется внутренний reference `lab://men-funnel/video/lab-men-funnel-video-fixture`. Реальный Telegram token в репозитории не хранится. Bonus delivery выполняется через dev/mock transport.
+Для видео используется внутренний reference `lab://men-funnel/video/lab-men-funnel-video-fixture`. Реальный Telegram token в репозитории не хранится. По умолчанию delivery выполняется через dev/mock transport; отдельный staging может явно включить Bot API и PostgreSQL.
 
 Целевая event model использует `bonus_delivery_attempted`, `bonus_sent` и `bonus_delivery_failed`; событие `bonus_received` в новом vertical slice не используется. Webinar и application используют разные purpose-bound signed token.
+
+PostgreSQL-режим сохраняет отдельные операции `entry_notice`, `bonus` и `webinar_invite`. Ручной recovery использует lease, ограниченные retry и fail-closed состояние `delivery_unknown`; scheduler, warming и Lifecycle / Reactivation остаются будущими этапами.

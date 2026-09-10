@@ -166,5 +166,10 @@ test('local webhook sends notice, bonus and signed webinar invite once per updat
   assert.equal(events.filter((event) => event === 'telegram_start').length, 1);
   assert.equal(events.filter((event) => event === 'bonus_sent').length, 1);
   assert.equal(events.filter((event) => event === 'webinar_invite_sent').length, 1);
+  assert.deepEqual((await store.listDeliveryOperations()).map((item) => [item.messageType, item.status]), [
+    ['entry_notice', 'delivered'],
+    ['bonus', 'delivered'],
+    ['webinar_invite', 'delivered'],
+  ]);
   assert.doesNotMatch(JSON.stringify(concurrent), /98765|userId|http:\/\/127\.0\.0\.1:9999|\.ey/);
 });

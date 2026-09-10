@@ -9,6 +9,7 @@ import {
 import { signFunnelToken, verifyFunnelToken } from '../security/signed-tokens.mjs';
 import { buildTelegramDeepLink } from '../telegram/deep-links.mjs';
 import { createDevTelegramTransport } from '../telegram/transport.mjs';
+import { createDeliveryRecoveryExecutor } from '../delivery/recovery-executor.mjs';
 
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
@@ -135,6 +136,7 @@ export function createMenWebinarFlow({
   webinarBaseUrl = null,
   entryNotice = defaultEntryNotice,
   transport = createDevTelegramTransport(),
+  recoveryOptions = {},
 }) {
   if (!store) throw new Error('store is required');
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
@@ -238,150 +240,130 @@ export function createMenWebinarFlow({
     return { status: 'not_started', event: null };
   }
 
-  async function sendTransportMessage({ user, message, bonus = null }) {
-    const telegram = await store.getTelegramUser(user.id);
-    return transport.sendMessage({
-      userId: user.id,
-      funnelId: user.funnelId,
-      telegramChatId: telegram?.telegramChatId ?? telegram?.telegramUserId,
-      message,
-      bonus,
-    });
+  async function resolveDeliveryMessage(operation) {
+    const descriptor = operation.descriptor ?? {};
+    const template = await store.findMessageTemplate(operation.funnelId, descriptor.templateName);
+    if (!template) throw new FunnelError('invalid_message_config', 'Telegram message config is unavailable', 500);
+    if (operation.messageType === 'bonus') {
+      const bonus = await store.findBonusForFunnel(operation.funnelId, 'entry');
+      if (!bonus || bonus.id !== descriptor.bonusId || bonus.version !== descriptor.bonusVersion) {
+        throw new FunnelError('invalid_bonus_config', 'Telegram bonus config is unavailable', 500);
+      }
+      return buildTemplateMessage(template, { role: 'bonus', bonus });
+    }
+    if (operation.messageType === 'webinar_invite') {
+      const user = await store.getUser(operation.userId);
+      const webinar = await issueWebinarToken(user);
+      return buildTemplateMessage(template, { role: 'webinar_invite', webinarUrl: webinar.url });
+    }
+    return buildTemplateMessage(template);
   }
 
-  async function deliverEntryNotice({ user, source, message, occurredAt }) {
-    const previous = (await store.listUserEvents(user.id)).find((event) => event.eventType === 'funnel_entry_notice_presented');
-    if (previous) return { status: 'sent', event: previous, duplicate: true };
-    try {
-      const result = await sendTransportMessage({ user, message });
-      const notice = { ...entryNotice, funnelId: source.funnelId, timestamp: occurredAt };
-      await store.updateUser(user.id, { entryNotice: notice, leadStatus: 'telegram_lead' });
-      const presented = await store.addEvent({
-        userId: user.id,
-        funnelId: source.funnelId,
-        eventType: 'funnel_entry_notice_presented',
-        metadata: {
-          ...sourceMetadata(source),
-          consent_or_request_version: entryNotice.version,
-          source: entryNotice.source,
-          provider: result.provider,
-          provider_message_id: result.messageId,
-          template_id: message.templateId,
-          template_version: message.templateVersion,
-        },
-        idempotencyKey: `entry-notice:${user.id}:${source.funnelId}`,
+  async function recordDeliveryAttempt(operation) {
+    if (operation.messageType === 'bonus') {
+      await store.addEvent({
+        userId: operation.userId, funnelId: operation.funnelId, eventType: 'bonus_delivery_attempted',
+        metadata: { bonus_id: operation.descriptor.bonusId, bonus_version: operation.descriptor.bonusVersion, attempt_number: operation.attemptCount },
+        idempotencyKey: `bonus-attempt:${operation.id}:${operation.attemptCount}`,
       });
-      return { status: 'sent', event: presented.event, provider: result.provider, providerMessageId: result.messageId };
-    } catch (error) {
-      return { status: 'failed', event: null, errorCode: error.code ?? 'transport_failed' };
+    }
+    if (operation.messageType === 'webinar_invite') {
+      await store.addEvent({
+        userId: operation.userId, funnelId: operation.funnelId, eventType: 'webinar_invite_delivery_attempted',
+        metadata: { attempt_number: operation.attemptCount, purpose: 'webinar', template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion },
+        idempotencyKey: `webinar-invite-attempt:${operation.id}:${operation.attemptCount}`,
+      });
     }
   }
 
-  async function deliverBonus({ user, bonus, message }) {
+  async function buildDeliveryOutcome({ operation, status, result, errorCategory, suppressionReason }) {
+    if (status === 'suppressed') return { suppressionReason };
+    const delivered = status === 'delivered';
+    if (operation.messageType === 'entry_notice') {
+      if (!delivered) return null;
+      return {
+        userPatch: {
+          entryNotice: { ...entryNotice, funnelId: operation.funnelId, timestamp: operation.descriptor.occurredAt },
+          leadStatus: 'telegram_lead',
+        },
+        event: {
+          userId: operation.userId, funnelId: operation.funnelId, eventType: 'funnel_entry_notice_presented',
+          metadata: { ...operation.descriptor.sourceMetadata, consent_or_request_version: entryNotice.version, source: entryNotice.source, provider: result.provider, provider_message_id: result.messageId, template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion },
+          idempotencyKey: `entry-notice:${operation.userId}:${operation.funnelId}`,
+        },
+      };
+    }
+    if (operation.messageType === 'bonus') {
+      return {
+        event: {
+          userId: operation.userId, funnelId: operation.funnelId,
+          eventType: delivered ? 'bonus_sent' : 'bonus_delivery_failed',
+          metadata: delivered
+            ? { bonus_id: operation.descriptor.bonusId, bonus_version: operation.descriptor.bonusVersion, provider: result.provider, provider_message_id: result.messageId }
+            : { bonus_id: operation.descriptor.bonusId, bonus_version: operation.descriptor.bonusVersion, attempt_number: operation.attemptCount, provider: transport.provider ?? 'unknown', result_category: errorCategory },
+          idempotencyKey: delivered ? `bonus-sent:${operation.id}` : `bonus-failed:${operation.id}:${operation.attemptCount}`,
+        },
+      };
+    }
+    return {
+      event: {
+        userId: operation.userId, funnelId: operation.funnelId,
+        eventType: delivered ? 'webinar_invite_sent' : 'webinar_invite_delivery_failed',
+        metadata: delivered
+          ? { purpose: 'webinar', provider: result.provider, provider_message_id: result.messageId, template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion }
+          : { attempt_number: operation.attemptCount, purpose: 'webinar', provider: transport.provider ?? 'unknown', template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion, result_category: errorCategory },
+        idempotencyKey: delivered ? `webinar-invite-sent:${operation.id}` : `webinar-invite-failed:${operation.id}:${operation.attemptCount}`,
+      },
+    };
+  }
+
+  const recoveryExecutor = createDeliveryRecoveryExecutor({
+    store, transport, resolveMessage: resolveDeliveryMessage,
+    recordAttempt: recordDeliveryAttempt, buildOutcome: buildDeliveryOutcome,
+    ...recoveryOptions,
+  });
+
+  async function prepareDelivery({ user, updateId, messageType, descriptor, operationKey, dependsOnOperationId = null }) {
+    const telegram = await store.getTelegramUser(user.id);
+    return store.createDeliveryOperation({
+      operationKey, funnelId: user.funnelId, userId: user.id, telegramUpdateId: updateId,
+      telegramChatId: telegram?.telegramChatId ?? telegram?.telegramUserId,
+      messageType, descriptor, dependsOnOperationId,
+    });
+  }
+
+  async function executeDelivery({ operation }) {
+    if (operation.status === 'delivered') {
+      return { status: 'sent', duplicate: true, provider: operation.provider, providerMessageId: operation.providerMessageId, operation };
+    }
+    const run = await recoveryExecutor.run({ operationId: operation.id, limit: 1 });
+    const saved = run.results[0] ?? await store.getDeliveryOperation(operation.id);
+    return {
+      status: saved.status === 'delivered' ? 'sent' : saved.status === 'suppressed' ? 'suppressed' : 'failed',
+      provider: saved.provider, providerMessageId: saved.providerMessageId,
+      errorCode: saved.lastErrorCode, operation: saved,
+    };
+  }
+
+  async function deliverEntryNotice({ user, operation }) {
+    const previous = (await store.listUserEvents(user.id)).find((event) => event.eventType === 'funnel_entry_notice_presented');
+    if (previous) return { status: 'sent', event: previous, duplicate: true };
+    return executeDelivery({ operation });
+  }
+
+  async function deliverBonus({ user, bonus, operation }) {
     if (!bonus) return { status: 'not_configured', event: null };
     const previous = await bonusDeliveryStatus(user.id, bonus.id);
     if (previous.status === 'sent') return { status: 'sent', event: previous.event, duplicate: true };
 
-    const attempts = (await store.listUserEvents(user.id)).filter((event) => event.eventType === 'bonus_delivery_attempted' && event.metadata?.bonus_id === bonus.id);
-    const attemptNumber = attempts.length + 1;
-    const attemptKey = `bonus-attempt:${user.id}:${bonus.id}:${bonus.version}:${attemptNumber}`;
-    const attempted = await store.addEvent({
-      userId: user.id,
-      funnelId: user.funnelId,
-      eventType: 'bonus_delivery_attempted',
-      metadata: {
-        bonus_id: bonus.id,
-        bonus_version: bonus.version,
-        attempt_number: attemptNumber,
-      },
-      idempotencyKey: attemptKey,
-    });
-    if (attempted.duplicate) return { status: 'attempted', event: attempted.event, duplicate: true };
-
-    try {
-      const result = await sendTransportMessage({ user, bonus, message });
-      const sent = await store.addEvent({
-        userId: user.id,
-        funnelId: user.funnelId,
-        eventType: 'bonus_sent',
-        metadata: {
-          bonus_id: bonus.id,
-          bonus_version: bonus.version,
-          provider: result.provider,
-          provider_message_id: result.messageId,
-        },
-        idempotencyKey: `bonus-sent:${user.id}:${bonus.id}:${bonus.version}`,
-      });
-      return { status: 'sent', event: sent.event, duplicate: sent.duplicate, provider: result.provider, providerMessageId: result.messageId };
-    } catch (error) {
-      const failed = await store.addEvent({
-        userId: user.id,
-        funnelId: user.funnelId,
-        eventType: 'bonus_delivery_failed',
-        metadata: {
-          bonus_id: bonus.id,
-          bonus_version: bonus.version,
-          attempt_number: attemptNumber,
-          provider: transport.provider ?? 'unknown',
-        },
-        idempotencyKey: `bonus-failed:${user.id}:${bonus.id}:${bonus.version}:${attemptNumber}`,
-      });
-      return { status: 'failed', event: failed.event, errorCode: error.code ?? 'transport_failed' };
-    }
+    return executeDelivery({ operation });
   }
 
-  async function deliverWebinarInvite({ user, message }) {
+  async function deliverWebinarInvite({ user, operation }) {
     const previous = await webinarInviteDeliveryStatus(user.id);
     if (previous.status === 'sent') return { status: 'sent', event: previous.event, duplicate: true };
 
-    const attempts = (await store.listUserEvents(user.id)).filter((event) => event.eventType === 'webinar_invite_delivery_attempted');
-    const attemptNumber = attempts.length + 1;
-    const attempted = await store.addEvent({
-      userId: user.id,
-      funnelId: user.funnelId,
-      eventType: 'webinar_invite_delivery_attempted',
-      metadata: {
-        attempt_number: attemptNumber,
-        purpose: 'webinar',
-        template_id: message.templateId,
-        template_version: message.templateVersion,
-      },
-      idempotencyKey: `webinar-invite-attempt:${user.id}:${message.templateId}:${message.templateVersion}:${attemptNumber}`,
-    });
-    if (attempted.duplicate) return { status: 'attempted', event: attempted.event, duplicate: true };
-
-    try {
-      const result = await sendTransportMessage({ user, message });
-      const sent = await store.addEvent({
-        userId: user.id,
-        funnelId: user.funnelId,
-        eventType: 'webinar_invite_sent',
-        metadata: {
-          purpose: 'webinar',
-          provider: result.provider,
-          provider_message_id: result.messageId,
-          template_id: message.templateId,
-          template_version: message.templateVersion,
-        },
-        idempotencyKey: `webinar-invite-sent:${user.id}:${message.templateId}:${message.templateVersion}`,
-      });
-      return { status: 'sent', event: sent.event, provider: result.provider, providerMessageId: result.messageId };
-    } catch (error) {
-      const failed = await store.addEvent({
-        userId: user.id,
-        funnelId: user.funnelId,
-        eventType: 'webinar_invite_delivery_failed',
-        metadata: {
-          attempt_number: attemptNumber,
-          purpose: 'webinar',
-          provider: transport.provider ?? 'unknown',
-          template_id: message.templateId,
-          template_version: message.templateVersion,
-        },
-        idempotencyKey: `webinar-invite-failed:${user.id}:${message.templateId}:${message.templateVersion}:${attemptNumber}`,
-      });
-      return { status: 'failed', event: failed.event, errorCode: error.code ?? 'transport_failed' };
-    }
+    return executeDelivery({ operation });
   }
 
   async function handleTelegramStart({ telegramUserId, firstName = null, username = null, languageCode = null, startParameter, updateId = null, timestamp = null }) {
@@ -426,11 +408,29 @@ export function createMenWebinarFlow({
     let bonusDelivery = await bonusDeliveryStatus(activeUser.id, bonus.id);
     let webinarInviteDelivery = await webinarInviteDeliveryStatus(activeUser.id);
     let webinar = null;
+    let prepared = null;
 
     if (!startEvent.duplicate) {
-      noticeDelivery = await deliverEntryNotice({ user: activeUser, source, message: noticeMessage, occurredAt });
+      const entryOperation = await prepareDelivery({
+        user: activeUser, updateId, messageType: 'entry_notice',
+        operationKey: `entry-notice:${activeUser.id}:${source.funnelId}`,
+        descriptor: { templateName: 'entry_notice', templateId: noticeMessage.templateId, templateVersion: noticeMessage.templateVersion, occurredAt, sourceMetadata: sourceMetadata(source) },
+      });
+      const bonusOperation = await prepareDelivery({
+        user: activeUser, updateId, messageType: 'bonus', dependsOnOperationId: entryOperation.id,
+        operationKey: `bonus:${activeUser.id}:${bonus.id}:${bonus.version}`,
+        descriptor: { templateName: 'podcast_bonus_intro', templateId: bonusMessage.templateId, templateVersion: bonusMessage.templateVersion, bonusId: bonus.id, bonusVersion: bonus.version },
+      });
+      const inviteOperation = await prepareDelivery({
+        user: activeUser, updateId, messageType: 'webinar_invite', dependsOnOperationId: bonusOperation.id,
+        operationKey: `webinar-invite:${activeUser.id}:${webinarTemplate.id}:${webinarTemplate.version}`,
+        descriptor: { templateName: 'webinar_invite', templateId: webinarTemplate.id, templateVersion: webinarTemplate.version },
+      });
+      prepared = { entryOperation, bonusOperation, inviteOperation };
+
+      noticeDelivery = await deliverEntryNotice({ user: activeUser, operation: entryOperation });
       if (noticeDelivery.status === 'sent') {
-        bonusDelivery = await deliverBonus({ user: activeUser, bonus, message: bonusMessage });
+        bonusDelivery = await deliverBonus({ user: activeUser, bonus, operation: bonusOperation });
       }
     }
 
@@ -439,7 +439,7 @@ export function createMenWebinarFlow({
       const webinarMessage = buildTemplateMessage(webinarTemplate, { role: 'webinar_invite', webinarUrl: webinar.url });
       messagePlan.push(webinarMessage);
       if (!startEvent.duplicate) {
-        webinarInviteDelivery = await deliverWebinarInvite({ user: activeUser, message: webinarMessage });
+        webinarInviteDelivery = await deliverWebinarInvite({ user: activeUser, operation: prepared.inviteOperation });
       }
     }
 
@@ -448,13 +448,13 @@ export function createMenWebinarFlow({
         ['entry_notice', noticeDelivery],
         ['bonus', bonusDelivery],
         ['webinar_invite', webinarInviteDelivery],
-      ].find(([, delivery]) => delivery.status === 'failed');
+      ].find(([, delivery]) => ['failed', 'suppressed'].includes(delivery.status));
       await store.finishTelegramUpdate({
         funnelId: activeUser.funnelId,
         updateId,
         status: failed ? 'failed' : 'completed',
         errorStage: failed?.[0] ?? null,
-        errorCode: failed?.[1]?.errorCode ?? null,
+        errorCode: failed?.[1]?.errorCode ?? (failed?.[1]?.status === 'suppressed' ? 'delivery_suppressed' : null),
       });
     }
 
@@ -626,5 +626,6 @@ export function createMenWebinarFlow({
     leadDetails,
     dashboard: (funnelId = FUNNEL_ID) => store.dashboard(funnelId),
     warmingConfig: (funnelId = FUNNEL_ID) => store.listAutomationRules(funnelId),
+    runDeliveryRecovery: (options) => recoveryExecutor.run(options),
   };
 }

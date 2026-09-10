@@ -19,6 +19,7 @@ export class MemoryStore {
     this.applications = new Map();
     this.applicationKeys = new Map();
     this.deletionRequests = new Map();
+    this.deliveryOperations = new Map();
   }
 
   seed({ funnel, sources = [], bonuses = [], messageTemplates = [], automationRules = [], webinar }) {
@@ -208,6 +209,81 @@ export class MemoryStore {
 
   getTelegramUpdate(funnelId, updateId) {
     return clone(this.telegramUpdates.get(`${funnelId}:${updateId}`) ?? null);
+  }
+
+  createDeliveryOperation({ operationKey, funnelId, userId, telegramUpdateId = null, telegramChatId, messageType, dependsOnOperationId = null, descriptor = {}, maxAttempts = 3 }) {
+    const existing = [...this.deliveryOperations.values()].find((item) => item.funnelId === funnelId && item.operationKey === operationKey);
+    if (existing) return clone(existing);
+    const timestamp = this.now().toISOString();
+    const operation = {
+      id: randomUUID(), operationKey, funnelId, userId,
+      telegramUpdateId: telegramUpdateId == null ? null : String(telegramUpdateId),
+      telegramChatId: String(telegramChatId), messageType, dependsOnOperationId, descriptor: clone(descriptor),
+      status: 'pending', attemptCount: 0, maxAttempts, nextAttemptAt: timestamp,
+      leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null, requestStartedAt: null,
+      provider: null, providerMessageId: null, deliveredAt: null,
+      lastErrorCode: null, lastErrorCategory: null, createdAt: timestamp, updatedAt: timestamp,
+    };
+    this.deliveryOperations.set(operation.id, operation);
+    return clone(operation);
+  }
+
+  getDeliveryOperation(operationId) { return clone(this.deliveryOperations.get(operationId) ?? null); }
+
+  listDeliveryOperations({ userId = null, status = null } = {}) {
+    return clone([...this.deliveryOperations.values()].filter((item) => (!userId || item.userId === userId) && (!status || item.status === status)));
+  }
+
+  claimDeliveryOperation({ workerId, leaseMs, operationId = null, now = this.now().toISOString() }) {
+    const nowMs = new Date(now).getTime();
+    for (const item of this.deliveryOperations.values()) {
+      if (item.status === 'processing' && new Date(item.leaseExpiresAt).getTime() <= nowMs && item.requestStartedAt) {
+        Object.assign(item, { status: 'delivery_unknown', lastErrorCode: 'lease_expired_after_request', lastErrorCategory: 'unknown', leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null, updatedAt: now });
+      }
+    }
+    const operation = [...this.deliveryOperations.values()].find((item) => {
+      if (operationId && item.id !== operationId) return false;
+      if (item.dependsOnOperationId && this.deliveryOperations.get(item.dependsOnOperationId)?.status !== 'delivered') return false;
+      if (['pending', 'retryable_failed'].includes(item.status)) return new Date(item.nextAttemptAt).getTime() <= nowMs;
+      return item.status === 'processing' && new Date(item.leaseExpiresAt).getTime() <= nowMs && !item.requestStartedAt;
+    });
+    if (!operation) return null;
+    Object.assign(operation, { status: 'processing', leaseOwner: workerId, leaseStartedAt: now, leaseExpiresAt: new Date(nowMs + leaseMs).toISOString(), requestStartedAt: null, updatedAt: now });
+    return clone(operation);
+  }
+
+  markDeliveryAttemptStarted({ operationId, workerId }) {
+    const operation = this.deliveryOperations.get(operationId);
+    if (!operation || operation.status !== 'processing' || operation.leaseOwner !== workerId || operation.requestStartedAt) return null;
+    operation.attemptCount += 1;
+    operation.requestStartedAt = this.now().toISOString();
+    operation.updatedAt = operation.requestStartedAt;
+    return clone(operation);
+  }
+
+  finishDeliveryOperation({ operationId, workerId, status, provider = null, providerMessageId = null, errorCode = null, errorCategory = null, nextAttemptAt = null, outcome = null }) {
+    const operation = this.deliveryOperations.get(operationId);
+    if (!operation || operation.status !== 'processing' || operation.leaseOwner !== workerId) return clone(operation ?? null);
+    const timestamp = this.now().toISOString();
+    Object.assign(operation, {
+      status, provider, providerMessageId,
+      deliveredAt: status === 'delivered' ? timestamp : null,
+      lastErrorCode: errorCode, lastErrorCategory: errorCategory,
+      nextAttemptAt: nextAttemptAt ?? operation.nextAttemptAt,
+      leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null,
+      requestStartedAt: status === 'retryable_failed' ? null : operation.requestStartedAt,
+      updatedAt: timestamp,
+    });
+    if (status === 'suppressed') {
+      for (const dependent of this.deliveryOperations.values()) {
+        if (dependent.funnelId === operation.funnelId && dependent.userId === operation.userId && ['pending', 'retryable_failed'].includes(dependent.status)) {
+          Object.assign(dependent, { status: 'suppressed', lastErrorCode: errorCode, lastErrorCategory: 'permanent', updatedAt: timestamp });
+        }
+      }
+    }
+    if (outcome?.userPatch) this.updateUser(operation.userId, outcome.userPatch);
+    if (outcome?.event) this.addEvent(outcome.event);
+    return clone(operation);
   }
 
   listUserEvents(userId) {

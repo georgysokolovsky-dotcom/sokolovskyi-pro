@@ -28,7 +28,7 @@ Bot token и полные signed URL не логируются. Успех `bonu
 - `FUNNEL_STORE=memory` — безопасный default для unit/local тестов. Данные теряются после restart.
 - `FUNNEL_STORE=postgres` — persistent store на лёгком driver `pg`. Без `DATABASE_URL` запуск завершается с понятной ошибкой.
 
-PostgreSQL хранит users, Telegram identity/chat ID, immutable `first_touch`, `funnel_entry_touch`, entry notice, events, applications, deletion requests и processing state Telegram update. `telegram_updates` имеет primary key `(funnel_id, update_id)`, поэтому concurrent-дубли блокируются на уровне базы.
+PostgreSQL хранит users, Telegram identity/chat ID, immutable `first_touch`, `funnel_entry_touch`, entry notice, events, applications, deletion requests, processing state Telegram update и persistent delivery operations. `telegram_updates` имеет primary key `(funnel_id, update_id)`, поэтому concurrent-дубли блокируются на уровне базы.
 
 Статусы `processing`, `completed` и `failed`, timestamps и `error_stage`/`error_code` отделяют полученный update от успешно завершённого. Внешние HTTP-вызовы Telegram не держат DB transaction. Попытка и результат каждой доставки фиксируются отдельными events.
 
@@ -41,6 +41,37 @@ npm --prefix server run migrate
 ```
 
 Runner применяет только ещё не записанные SQL-файлы из `server/migrations/` и фиксирует их в `schema_migrations`. К production-базе эта команда автоматически не подключается.
+
+`002_delivery_operations.sql` добавляет persistent operation state, а `003_delivery_dependencies.sql` — безопасную последовательность `entry_notice` → `bonus` → `webinar_invite`. Запись хранит стабильный ключ, update/user/funnel/recipient, descriptor без signed URL, attempts, lease, нормализованную ошибку и Telegram receipt.
+
+## Ручной recovery
+
+После migration незавершённые операции можно обработать вручную:
+
+```bash
+npm --prefix server run recovery
+```
+
+Команда требует явных `FUNNEL_STORE=postgres` и `TELEGRAM_TRANSPORT=bot-api`; автоматического запуска и cron нет. Executor атомарно захватывает одну доступную операцию, повторно проверяет suppression, отмечает начало HTTP-запроса и сохраняет результат. Зависимая операция становится доступной только после `delivered` предыдущей.
+
+State machine:
+
+```text
+pending → processing → delivered
+                    ↘ retryable_failed → processing → dead_letter
+                    ↘ delivery_unknown
+                    ↘ dead_letter
+                    ↘ suppressed
+```
+
+- HTTP `429` и `5xx` считаются однозначно временными и получают exponential backoff без бесконечных попыток.
+- `4xx`, Telegram API rejection, неверный payload или config закрываются в `dead_letter`.
+- timeout, network error, malformed response и истёкший lease после начала запроса дают `delivery_unknown`; автоматическая повторная отправка запрещена.
+- истёкший lease до отметки начала HTTP-запроса можно безопасно захватить повторно.
+- `delivered` с provider receipt никогда не выбирается executor повторно.
+- перед каждой отправкой проверяются `/stop`, deletion request и `lead_status=sold`; операция становится `suppressed` без transport-вызова.
+
+Логи recovery содержат только operation ID, message type, attempt, result category и факт запланированного retry. Bot token, `DATABASE_URL`, Telegram identity и signed webinar URL не выводятся.
 
 ## Запуск
 
@@ -91,28 +122,20 @@ npm run test:funnel
 
 Тесты поднимают in-process fake Telegram Bot API на случайном локальном порту. Он принимает реальные HTTP payload и эмулирует success, HTTP 400/500, timeout, malformed JSON и `{ ok: false }`. Внешний интернет и Telegram в тестах не используются.
 
-Настоящий PostgreSQL integration/restart test запускается только с отдельным URL безопасной тестовой базы:
+Настоящие PostgreSQL integration/restart/recovery tests запускаются только с отдельным URL безопасной тестовой базы:
 
 ```bash
 FUNNEL_TEST_DATABASE_URL='postgresql://localhost/men_funnel_test' npm --prefix server run test:postgres
 ```
 
-Тест создаёт и удаляет уникальную schema внутри этой базы. Без `FUNNEL_TEST_DATABASE_URL` он явно отмечается как skipped.
+Тесты создают и удаляют уникальные schema внутри этой базы. Они проверяют crash/restart, delivered guard, lease, backoff, permanent и unknown outcome, suppression и гонку двух executor. Без `FUNNEL_TEST_DATABASE_URL` они явно отмечаются как skipped.
 
 ## Ограничения
 
 - PostgreSQL store реализован, но локальная и production-базы не подключены автоматически.
 - В `memory`-режиме restart по-прежнему стирает состояние; в `postgres`-режиме users, attribution, events, applications и `update_id` сохраняются.
-- Если шаг доставки завершился ошибкой, оставшиеся шаги цепочки не отправляются. Persistent retry и scheduler отложены.
-- Автоматического retry для `failed` или зависшего `processing` update пока нет; статус сохраняется для будущего retry/executor slice.
+- При ошибке текущего шага немедленный webhook-flow останавливается. Подготовленные зависимые operations остаются заблокированными до подтверждённой доставки предыдущего шага; ручной recovery продолжает цепочку только по безопасным состояниям.
+- Telegram update сохраняет исходный `failed`/`error_stage`; recovery имеет отдельную operation timeline и не переписывает исторический результат webhook.
 - Публичный webinar route, production hosting, CRM integration и реальное видео не подключены.
-
-### План recovery без реализации executor
-
-- `failed` допускается к ручному или будущему автоматическому retry только по allowlist временных ошибок: timeout, network error и HTTP 429/5xx. Ошибки payload, 4xx и неверная конфигурация требуют исправления без автоматического повтора.
-- `processing` считается зависшим только после lease timeout. Executor должен захватывать запись атомарно через `FOR UPDATE SKIP LOCKED`, записывать новый lease и ограниченный `attempt_number`.
-- Повтор начинается с первого шага без подтверждённого `*_sent` event. Уже подтверждённые entry notice, bonus и webinar invite повторно не отправляются.
-- Каждый delivery attempt получает стабильный operation/idempotency key. Provider message ID сохраняется сразу после ответа Telegram.
-- Между принятием сообщения Telegram и commit в PostgreSQL остаётся окно неопределённости. Для него нужен статус `delivery_unknown` и ручная сверка, а не слепая повторная отправка.
-- `telegram_stop`, deletion requested/processing/completed, sold и другие запрещённые состояния проверяются непосредственно перед каждым retry и исключают дальнейшую коммуникацию.
-- Нужны max attempts, exponential backoff с jitter, dead-letter status, audit event и operator-visible reason. Scheduler и массовый warming не должны использовать recovery queue.
+- Recovery остаётся ручным. Operator UI, ручное разрешение `delivery_unknown`, jitter, alerts и scheduler отсутствуют.
+- Telegram Bot API не поддерживает idempotency key для `sendMessage`. Если provider принял сообщение, а процесс умер до сохранения receipt, операция намеренно остаётся `delivery_unknown`; автоматический дубль не создаётся.

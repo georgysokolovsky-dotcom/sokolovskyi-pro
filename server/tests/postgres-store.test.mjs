@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import pg from 'pg';
 import { PostgresStore } from '../src/store/postgres-store.mjs';
 import { localFixture } from '../src/data/local-fixture.mjs';
@@ -41,9 +41,11 @@ integrationTest('Postgres store persists the full funnel and suppresses update d
     await admin.end();
   });
 
-  const migration = await readFile(new URL('../migrations/001_core.sql', import.meta.url), 'utf8');
   const migrationPool = new Pool({ connectionString, max: 1, options: `-c search_path=${schema}` });
-  await migrationPool.query(migration);
+  const migrationsUrl = new URL('../migrations/', import.meta.url);
+  for (const name of (await readdir(migrationsUrl)).filter((item) => /^\d+.*\.sql$/.test(item)).sort()) {
+    await migrationPool.query(await readFile(new URL(name, migrationsUrl), 'utf8'));
+  }
   await migrationPool.end();
 
   const firstDeliveries = [];

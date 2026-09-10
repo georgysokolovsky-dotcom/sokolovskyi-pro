@@ -30,6 +30,21 @@ function mapEvent(row) {
 function mapApplication(row) {
   return row && { id: row.id, userId: row.user_id, funnelId: row.funnel_id, status: row.status, answers: row.answers, privacyPolicyVersion: row.privacy_policy_version, consent: row.consent, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) };
 }
+function mapDeliveryOperation(row) {
+  return row && {
+    id: row.id, operationKey: row.operation_key, funnelId: row.funnel_id, userId: row.user_id,
+    telegramUpdateId: row.telegram_update_id == null ? null : String(row.telegram_update_id),
+    telegramChatId: String(row.telegram_chat_id), messageType: row.message_type,
+    dependsOnOperationId: row.depends_on_operation_id, descriptor: row.descriptor,
+    status: row.status, attemptCount: row.attempt_count, maxAttempts: row.max_attempts,
+    nextAttemptAt: iso(row.next_attempt_at), leaseOwner: row.lease_owner,
+    leaseStartedAt: iso(row.lease_started_at), leaseExpiresAt: iso(row.lease_expires_at),
+    requestStartedAt: iso(row.request_started_at), provider: row.provider,
+    providerMessageId: row.provider_message_id, deliveredAt: iso(row.delivered_at),
+    lastErrorCode: row.last_error_code, lastErrorCategory: row.last_error_category,
+    createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  };
+}
 
 export class PostgresStore {
   constructor({ connectionString, pool = null } = {}) {
@@ -145,6 +160,72 @@ export class PostgresStore {
   async getTelegramUpdate(funnelId,updateId) {
     const row=(await this.pool.query('select * from telegram_updates where funnel_id=$1 and update_id=$2',[funnelId,String(updateId)])).rows[0];
     return row&&{funnelId:row.funnel_id,updateId:String(row.update_id),userId:row.user_id,sourceId:row.source_id,status:row.status,receivedAt:iso(row.received_at),processingStartedAt:iso(row.processing_started_at),completedAt:iso(row.completed_at),failedAt:iso(row.failed_at),errorStage:row.error_stage,errorCode:row.error_code};
+  }
+
+  async createDeliveryOperation({operationKey,funnelId,userId,telegramUpdateId=null,telegramChatId,messageType,dependsOnOperationId=null,descriptor={},maxAttempts=3}) {
+    const row=(await this.pool.query(`insert into delivery_operations
+      (id,operation_key,funnel_id,user_id,telegram_update_id,telegram_chat_id,message_type,depends_on_operation_id,descriptor,max_attempts)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      on conflict (funnel_id,operation_key) do update set operation_key=excluded.operation_key
+      returning *`,[randomUUID(),operationKey,funnelId,userId,telegramUpdateId==null?null:String(telegramUpdateId),String(telegramChatId),messageType,dependsOnOperationId,JSON.stringify(descriptor),maxAttempts])).rows[0];
+    return mapDeliveryOperation(row);
+  }
+
+  async getDeliveryOperation(operationId) {
+    return mapDeliveryOperation((await this.pool.query('select * from delivery_operations where id=$1',[operationId])).rows[0]);
+  }
+
+  async listDeliveryOperations({userId=null,status=null}={}) {
+    const values=[];
+    const where=[];
+    if (userId) { values.push(userId); where.push(`user_id=$${values.length}`); }
+    if (status) { values.push(status); where.push(`status=$${values.length}`); }
+    const rows=(await this.pool.query(`select * from delivery_operations${where.length?` where ${where.join(' and ')}`:''} order by created_at,id`,values)).rows;
+    return rows.map(mapDeliveryOperation);
+  }
+
+  async claimDeliveryOperation({workerId,leaseMs,operationId=null,now=new Date().toISOString()}) {
+    return this.transaction(async(db)=>{
+      await db.query(`update delivery_operations set status='delivery_unknown',last_error_code='lease_expired_after_request',last_error_category='unknown',
+        lease_owner=null,lease_started_at=null,lease_expires_at=null,updated_at=$1
+        where status='processing' and lease_expires_at <= $1 and request_started_at is not null`,[now]);
+      const values=[now,operationId];
+      const row=(await db.query(`select operation.* from delivery_operations operation
+        where ($2::uuid is null or operation.id=$2)
+          and (operation.depends_on_operation_id is null or exists (select 1 from delivery_operations dependency where dependency.id=operation.depends_on_operation_id and dependency.status='delivered'))
+          and ((status in ('pending','retryable_failed') and next_attempt_at <= $1)
+            or (status='processing' and lease_expires_at <= $1 and request_started_at is null))
+        order by operation.next_attempt_at,operation.created_at,operation.id for update of operation skip locked limit 1`,values)).rows[0];
+      if (!row) return null;
+      const leaseExpiresAt=new Date(new Date(now).getTime()+leaseMs).toISOString();
+      return mapDeliveryOperation((await db.query(`update delivery_operations set status='processing',lease_owner=$2,
+        lease_started_at=$3,lease_expires_at=$4,request_started_at=null,updated_at=$3 where id=$1 returning *`,
+      [row.id,workerId,now,leaseExpiresAt])).rows[0]);
+    });
+  }
+
+  async markDeliveryAttemptStarted({operationId,workerId}) {
+    const row=(await this.pool.query(`update delivery_operations set attempt_count=attempt_count+1,request_started_at=now(),updated_at=now()
+      where id=$1 and status='processing' and lease_owner=$2 and request_started_at is null returning *`,[operationId,workerId])).rows[0];
+    return mapDeliveryOperation(row);
+  }
+
+  async finishDeliveryOperation({operationId,workerId,status,provider=null,providerMessageId=null,errorCode=null,errorCategory=null,nextAttemptAt=null,outcome=null}) {
+    return this.transaction(async(db)=>{
+      const row=(await db.query(`update delivery_operations set status=$3,provider=$4,provider_message_id=$5,
+        delivered_at=case when $3='delivered' then now() else null end,last_error_code=$6,last_error_category=$7,
+        next_attempt_at=coalesce($8,next_attempt_at),lease_owner=null,lease_started_at=null,lease_expires_at=null,
+        request_started_at=case when $3='retryable_failed' then null else request_started_at end,updated_at=now()
+        where id=$1 and status='processing' and lease_owner=$2 returning *`,
+      [operationId,workerId,status,provider,providerMessageId,errorCode,errorCategory,nextAttemptAt])).rows[0];
+      if (!row) return mapDeliveryOperation((await db.query('select * from delivery_operations where id=$1',[operationId])).rows[0]);
+      if (status==='suppressed') await db.query(`update delivery_operations set status='suppressed',last_error_code=$3,last_error_category='permanent',
+        next_attempt_at=now(),lease_owner=null,lease_started_at=null,lease_expires_at=null,updated_at=now()
+        where funnel_id=$1 and user_id=$2 and status in ('pending','retryable_failed')`,[row.funnel_id,row.user_id,errorCode]);
+      if (outcome?.userPatch) await this.updateUser(row.user_id,outcome.userPatch,db);
+      if (outcome?.event) await this.addEvent(outcome.event,db);
+      return mapDeliveryOperation(row);
+    });
   }
 
   async setPromotionalEnabled(userId,enabled,stoppedAt=null) { return this.updateUser(userId,{promotionalEnabled:Boolean(enabled),stopRequestedAt:enabled?null:stoppedAt}); }
