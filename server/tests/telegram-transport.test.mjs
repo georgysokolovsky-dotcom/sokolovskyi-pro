@@ -170,6 +170,8 @@ test('local webhook sends notice, bonus and signed webinar invite once per updat
     ['entry_notice', 'delivered'],
     ['bonus', 'delivered'],
     ['webinar_invite', 'delivered'],
+    ['warming', 'scheduled'],
+    ['warming', 'scheduled'],
   ]);
   assert.doesNotMatch(JSON.stringify(concurrent), /98765|userId|http:\/\/127\.0\.0\.1:9999|\.ey/);
 });

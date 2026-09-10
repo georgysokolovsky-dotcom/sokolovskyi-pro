@@ -319,7 +319,7 @@ test('stop disables promotional messaging and delete creates a pending request',
   ]);
 });
 
-test('invalid application does not create application_submitted and warming remains configuration-only', async (t) => {
+test('invalid application does not create application_submitted and warming rules stay config-driven', async (t) => {
   const server = await makeTestServer();
   t.after(() => server.app.close());
   const started = await start(server, { telegramUserId: 777, updateId: 8 });

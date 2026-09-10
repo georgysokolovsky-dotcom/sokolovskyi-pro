@@ -7,9 +7,11 @@
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
     "test": "node --test",
-    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs",
+    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs tests/warming-scheduler.test.mjs",
     "migrate": "node scripts/migrate.mjs",
     "recovery": "node scripts/recovery.mjs",
+    "scheduler": "node scripts/scheduler.mjs",
+    "operations:inspect": "node scripts/operations-inspect.mjs",
     "staging:webhook": "node scripts/telegram-webhook.mjs",
     "staging:verify": "node scripts/staging-verify.mjs"
   },

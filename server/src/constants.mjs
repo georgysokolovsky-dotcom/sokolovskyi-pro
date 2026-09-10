@@ -25,6 +25,9 @@ export const FUNNEL_EVENTS = Object.freeze([
   'webinar_invite_delivery_attempted',
   'webinar_invite_sent',
   'webinar_invite_delivery_failed',
+  'warming_delivery_attempted',
+  'warming_sent',
+  'warming_delivery_failed',
   'webinar_page_view',
   'webinar_started',
   'watched_25',
@@ -64,6 +67,11 @@ export const PUBLIC_EVENT_METADATA_KEYS = Object.freeze([
   'consent_or_request_version',
   'template_id',
   'template_version',
+  'warming_rule_id',
+  'warming_rule_name',
+  'message_class',
+  'result_category',
+  'cancellation_reason',
 ]);
 
 export const BONUS_DELIVERY_MODES = Object.freeze(['link', 'telegram_audio']);

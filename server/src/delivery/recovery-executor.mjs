@@ -35,12 +35,23 @@ function safeLog(logger, event, operation, details = {}) {
   });
 }
 
+export async function getDeliverySuppressionReason(store, userId, funnelId) {
+  const user = await store.getUser(userId);
+  const deletion = user ? await store.getDataDeletionRequest({ userId: user.id, funnelId }) : null;
+  if (!user) return 'user_missing';
+  if (user.leadStatus === 'sold') return 'sold';
+  if (user.promotionalEnabled === false || user.stopRequestedAt) return 'telegram_stop';
+  if (user.deletionRequestedAt || deletion) return 'data_deletion_requested';
+  return null;
+}
+
 export function createDeliveryRecoveryExecutor({
   store,
   transport,
   resolveMessage,
   buildOutcome,
   recordAttempt,
+  validateOperation,
   workerId = `recovery-${randomUUID()}`,
   leaseMs = 30_000,
   baseDelayMs = 1_000,
@@ -50,21 +61,17 @@ export function createDeliveryRecoveryExecutor({
   if (!store || !transport || typeof resolveMessage !== 'function') throw new Error('recovery dependencies are required');
 
   async function processClaimed(operation) {
-    const user = await store.getUser(operation.userId);
-    const deletion = user ? await store.getDataDeletionRequest({ userId: user.id, funnelId: user.funnelId }) : null;
-    const suppressionReason = !user
-      ? 'user_missing'
-      : user.leadStatus === 'sold'
-        ? 'sold'
-        : user.promotionalEnabled === false || user.stopRequestedAt
-          ? 'telegram_stop'
-          : user.deletionRequestedAt || deletion
-            ? 'data_deletion_requested'
-            : null;
+    const suppressionReason = await getDeliverySuppressionReason(store, operation.userId, operation.funnelId);
     if (suppressionReason) {
       const outcome = await buildOutcome?.({ operation, status: 'suppressed', suppressionReason });
       const saved = await store.finishDeliveryOperation({ operationId: operation.id, workerId, status: 'suppressed', errorCode: suppressionReason, errorCategory: 'permanent', outcome });
       safeLog(logger, 'delivery_suppressed', saved, { resultCategory: suppressionReason });
+      return saved;
+    }
+    const validation = await validateOperation?.(operation);
+    if (validation?.cancellationReason) {
+      const saved = await store.finishDeliveryOperation({ operationId: operation.id, workerId, status: 'cancelled', cancellationReason: validation.cancellationReason });
+      safeLog(logger, 'delivery_cancelled', saved, { resultCategory: validation.cancellationReason });
       return saved;
     }
 

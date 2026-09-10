@@ -10,6 +10,7 @@ import { signFunnelToken, verifyFunnelToken } from '../security/signed-tokens.mj
 import { buildTelegramDeepLink } from '../telegram/deep-links.mjs';
 import { createDevTelegramTransport } from '../telegram/transport.mjs';
 import { createDeliveryRecoveryExecutor } from '../delivery/recovery-executor.mjs';
+import { cancellationReasonForRule, createWarmingScheduler } from '../scheduler/warming-scheduler.mjs';
 
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
@@ -106,7 +107,7 @@ function sourceMetadata(source) {
   };
 }
 
-function buildTemplateMessage(template, { role = template?.role, bonus = null, webinarUrl = null } = {}) {
+function buildTemplateMessage(template, { role = template?.role, bonus = null, webinarUrl = null, applicationUrl = null } = {}) {
   if (!template) return null;
   return {
     role,
@@ -121,6 +122,7 @@ function buildTemplateMessage(template, { role = template?.role, bonus = null, w
         return { type: 'url', label: button.label, url: bonus.contentRef };
       }
       if (button.type === 'signed_video' && webinarUrl) return { type: 'url', label: button.label, url: webinarUrl };
+      if (button.type === 'signed_application' && applicationUrl) return { type: 'url', label: button.label, url: applicationUrl };
       return button;
     }),
   };
@@ -137,6 +139,8 @@ export function createMenWebinarFlow({
   entryNotice = defaultEntryNotice,
   transport = createDevTelegramTransport(),
   recoveryOptions = {},
+  warmingPolicy = { jitterMaxSeconds: 60, maxScheduledPerFunnelEntry: 4, maxPromotionalDelivered: 2, promotionalRollingPeriodSeconds: 7 * 24 * 60 * 60 },
+  schedulerOptions = {},
 }) {
   if (!store) throw new Error('store is required');
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
@@ -214,6 +218,8 @@ export function createMenWebinarFlow({
       if (eventType === 'data_deletion_requested') {
         await store.requestDataDeletion({ userId, funnelId });
       }
+      await warmingScheduler.reconcileAfterEvent({ userId, eventType });
+      await scheduleWarmingForEvent({ userId, eventType, occurredAt: result.event.occurredAt });
     }
     return { ...result, status: (await store.getUser(userId)).leadStatus };
   }
@@ -256,6 +262,15 @@ export function createMenWebinarFlow({
       const webinar = await issueWebinarToken(user);
       return buildTemplateMessage(template, { role: 'webinar_invite', webinarUrl: webinar.url });
     }
+    if (operation.messageType === 'warming') {
+      const user = await store.getUser(operation.userId);
+      if (operation.descriptor.ruleName === 'application_follow_up_2h') {
+        const application = issueApplicationToken(user);
+        return buildTemplateMessage(template, { role: 'warming', applicationUrl: application.url });
+      }
+      const webinar = await issueWebinarToken(user);
+      return buildTemplateMessage(template, { role: 'warming', webinarUrl: webinar.url });
+    }
     return buildTemplateMessage(template);
   }
 
@@ -272,6 +287,13 @@ export function createMenWebinarFlow({
         userId: operation.userId, funnelId: operation.funnelId, eventType: 'webinar_invite_delivery_attempted',
         metadata: { attempt_number: operation.attemptCount, purpose: 'webinar', template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion },
         idempotencyKey: `webinar-invite-attempt:${operation.id}:${operation.attemptCount}`,
+      });
+    }
+    if (operation.messageType === 'warming') {
+      await store.addEvent({
+        userId: operation.userId, funnelId: operation.funnelId, eventType: 'warming_delivery_attempted',
+        metadata: { attempt_number: operation.attemptCount, warming_rule_id: operation.warmingRuleId, warming_rule_name: operation.descriptor.ruleName, message_class: operation.messageClass, template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion },
+        idempotencyKey: `warming-attempt:${operation.id}:${operation.attemptCount}`,
       });
     }
   }
@@ -305,7 +327,7 @@ export function createMenWebinarFlow({
         },
       };
     }
-    return {
+    if (operation.messageType === 'webinar_invite') return {
       event: {
         userId: operation.userId, funnelId: operation.funnelId,
         eventType: delivered ? 'webinar_invite_sent' : 'webinar_invite_delivery_failed',
@@ -315,13 +337,57 @@ export function createMenWebinarFlow({
         idempotencyKey: delivered ? `webinar-invite-sent:${operation.id}` : `webinar-invite-failed:${operation.id}:${operation.attemptCount}`,
       },
     };
+    return {
+      event: {
+        userId: operation.userId, funnelId: operation.funnelId,
+        eventType: delivered ? 'warming_sent' : 'warming_delivery_failed',
+        metadata: delivered
+          ? { provider: result.provider, provider_message_id: result.messageId, warming_rule_id: operation.warmingRuleId, warming_rule_name: operation.descriptor.ruleName, message_class: operation.messageClass, template_id: operation.descriptor.templateId, template_version: operation.descriptor.templateVersion }
+          : { attempt_number: operation.attemptCount, provider: transport.provider ?? 'unknown', warming_rule_id: operation.warmingRuleId, warming_rule_name: operation.descriptor.ruleName, message_class: operation.messageClass, result_category: errorCategory },
+        idempotencyKey: delivered ? `warming-sent:${operation.id}` : `warming-failed:${operation.id}:${operation.attemptCount}`,
+      },
+    };
+  }
+
+  async function validateDeliveryOperation(operation) {
+    if (operation.messageType !== 'warming') return null;
+    const user = await store.getUser(operation.userId);
+    if (!user?.funnelEntryTouch) return { cancellationReason: 'funnel_entry_missing' };
+    const rule = (await store.listAutomationRules(operation.funnelId)).find((item) => item.id === operation.warmingRuleId);
+    const events = await store.listUserEvents(operation.userId);
+    const cancellationReason = cancellationReasonForRule(rule, events);
+    if (cancellationReason) return { cancellationReason };
+    if (operation.messageClass === 'promotional') {
+      const currentTime = (recoveryOptions.now ?? (() => new Date()))();
+      const windowStart = currentTime.getTime() - warmingPolicy.promotionalRollingPeriodSeconds * 1000;
+      const delivered = (await store.listDeliveryOperations({ userId: operation.userId })).filter((item) => item.messageType === 'warming'
+        && item.messageClass === 'promotional' && item.status === 'delivered' && new Date(item.deliveredAt).getTime() >= windowStart);
+      if (delivered.length >= warmingPolicy.maxPromotionalDelivered) return { cancellationReason: 'promotional_message_limit' };
+    }
+    return null;
   }
 
   const recoveryExecutor = createDeliveryRecoveryExecutor({
     store, transport, resolveMessage: resolveDeliveryMessage,
-    recordAttempt: recordDeliveryAttempt, buildOutcome: buildDeliveryOutcome,
+    recordAttempt: recordDeliveryAttempt, buildOutcome: buildDeliveryOutcome, validateOperation: validateDeliveryOperation,
     ...recoveryOptions,
   });
+
+  const warmingScheduler = createWarmingScheduler({
+    store, funnelId: FUNNEL_ID, policy: warmingPolicy,
+    deliverOperation: (operationId) => recoveryExecutor.run({ operationId, limit: 1 }),
+    ...schedulerOptions,
+  });
+
+  async function scheduleWarmingForEvent({ userId, eventType, occurredAt, dependsOnOperationId = null }) {
+    if (!['bonus_sent', 'webinar_started', 'watched_75'].includes(eventType)) return [];
+    let dependencyId = dependsOnOperationId;
+    if (!dependencyId) {
+      const operations = await store.listDeliveryOperations({ userId });
+      dependencyId = operations.find((item) => item.messageType === 'webinar_invite' && item.status === 'delivered')?.id ?? null;
+    }
+    return warmingScheduler.scheduleForTrigger({ userId, triggerEvent: eventType, triggeredAt: occurredAt, dependsOnOperationId: dependencyId });
+  }
 
   async function prepareDelivery({ user, updateId, messageType, descriptor, operationKey, dependsOnOperationId = null }) {
     const telegram = await store.getTelegramUser(user.id);
@@ -440,6 +506,10 @@ export function createMenWebinarFlow({
       messagePlan.push(webinarMessage);
       if (!startEvent.duplicate) {
         webinarInviteDelivery = await deliverWebinarInvite({ user: activeUser, operation: prepared.inviteOperation });
+        if (webinarInviteDelivery.status === 'sent') {
+          const deliveredBonus = await store.getDeliveryOperation(prepared.bonusOperation.id);
+          await scheduleWarmingForEvent({ userId: activeUser.id, eventType: 'bonus_sent', occurredAt: deliveredBonus.deliveredAt, dependsOnOperationId: prepared.inviteOperation.id });
+        }
       }
     }
 
@@ -532,6 +602,7 @@ export function createMenWebinarFlow({
     const cleanAnswers = sanitizeAnswers(answers);
     const cleanConsent = assertConsent(consent);
     const result = await store.createApplicationWithEvent({ userId: user.id, funnelId: user.funnelId, answers: cleanAnswers, consent: cleanConsent, idempotencyKey });
+    if (!result.duplicate) await warmingScheduler.reconcileAfterEvent({ userId: user.id, eventType: 'application_submitted' });
     return { ...result, userId: user.id };
   }
 
@@ -627,5 +698,7 @@ export function createMenWebinarFlow({
     dashboard: (funnelId = FUNNEL_ID) => store.dashboard(funnelId),
     warmingConfig: (funnelId = FUNNEL_ID) => store.listAutomationRules(funnelId),
     runDeliveryRecovery: (options) => recoveryExecutor.run(options),
+    runWarmingScheduler: (options) => warmingScheduler.run(options),
+    exceptionalDeliveries: (funnelId = FUNNEL_ID) => store.listExceptionalDeliveryOperations({ funnelId }),
   };
 }

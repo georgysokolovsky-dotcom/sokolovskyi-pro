@@ -15,4 +15,6 @@
 
 Целевая event model использует `bonus_delivery_attempted`, `bonus_sent` и `bonus_delivery_failed`; событие `bonus_received` в новом vertical slice не используется. Webinar и application используют разные purpose-bound signed token.
 
-PostgreSQL-режим сохраняет отдельные операции `entry_notice`, `bonus` и `webinar_invite`. Ручной recovery использует lease, ограниченные retry и fail-closed состояние `delivery_unknown`; scheduler, warming и Lifecycle / Reactivation остаются будущими этапами.
+PostgreSQL-режим сохраняет операции `entry_notice`, `bonus`, `webinar_invite` и warming. Ручной recovery использует lease, ограниченные retry и fail-closed состояние `delivery_unknown`.
+
+Persistent warming scheduler добавлен как ручной per-user executor поверх той же delivery model. Он планирует rules по событиям, добавляет малый jitter, перепроверяет cancellation/suppression и передаёт send recovery layer. Cron, массовая рассылка и Lifecycle / Reactivation не добавлены.

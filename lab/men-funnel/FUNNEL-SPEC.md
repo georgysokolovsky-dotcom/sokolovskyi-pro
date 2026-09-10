@@ -55,6 +55,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `server/migrations/001_core.sql` — initial PostgreSQL schema с Telegram update state и database-level idempotency;
 - `server/migrations/002_delivery_operations.sql` — persistent delivery operations, lease и recovery state machine;
 - `server/migrations/003_delivery_dependencies.sql` — порядок зависимых шагов delivery после restart;
+- `server/migrations/004_warming_scheduler.sql` — persistent warming fields, scheduler lease, cancellation и per-entry uniqueness;
 - `server/tests/vertical-slice.test.mjs` — проверка пути от Telegram Start до application.
 
 В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Реальный видеоматериал не подключён.
@@ -546,20 +547,35 @@ status
 version
 ```
 
-Запланированное сообщение хранит:
+Запланированное сообщение расширяет ту же `delivery_operations`, а не создаёт параллельную очередь. Оно хранит:
 
 ```text
 user_id
 funnel_id
-message_template_id
+warming_rule_id
+message_template_id/version в safe descriptor
 message_class
-scheduled_at
-status: pending | sent | cancelled | failed
-cancellation_key
+scheduled_for
+earliest_execution_at
+status: scheduled | scheduler_processing | pending | processing | delivered | cancelled | suppressed | retryable_failed | dead_letter | delivery_unknown
+cancellation_reason
+depends_on_operation_id
 attempts
+executed_at
 ```
 
-Ожидающие promotional и follow-up сообщения этой funnel отменяются после `application_submitted` и после `/stop`.
+Один rule/version может быть запланирован для одного funnel entry только один раз. На один entry разрешено не более четырёх warming operations. Promotional limit — не более двух подтверждённых deliveries за rolling 7 days. К timing добавляется конфигурируемый jitter 0–60 секунд.
+
+Cancellation определяется по rule:
+
+- reminders 15m/3h отменяются после `webinar_started` или любого последующего progress;
+- continue watching отсчитывает 6 часов от последней активности ниже 50% и отменяется после 50%+ или `webinar_completed`;
+- application follow-up отменяется после `cta_clicked`, `application_started` или `application_submitted`;
+- `/stop`, deletion request и `sold` suppress все ожидающие warming operations без transport call.
+
+Scheduler запускается только вручную. Он атомарно claims due operation, перепроверяет rule, events, dependency, limits и suppression, затем передаёт operation recovery layer. После crash обычный recovery снова проверяет cancellation перед send. `dead_letter` и `delivery_unknown` не возвращаются в scheduler автоматически.
+
+Конфликт config зафиксирован fail closed: `application_follow_up_2h` имеет trigger `watched_75`, но также `includesProgress: ['watched_90']`; спецификация говорит «75 или 90». Текущий scheduler создаёт rule только по явному trigger `watched_75`; прямой `watched_90` не активирует её до уточнения config contract.
 
 ## E. Webinar
 
@@ -718,7 +734,7 @@ Lifecycle executor должен работать поверх сохранённ
 
 Перед каждым warming или reactivation send executor заново проверяет suppression state. Автоматически исключаются покупатели, `telegram_stop`, deletion requested/processing/completed, недоступный Telegram channel и любые будущие legal/compliance запреты. Отмена имеет приоритет над уже поставленной задачей.
 
-На текущем этапе Lifecycle / Reactivation остаётся только архитектурным требованием. Scheduler, warming executor и reactivation messages не реализуются и не запускаются. Ручной delivery recovery обслуживает только уже созданные операции входной цепочки и не создаёт lifecycle-сообщения.
+На текущем этапе Lifecycle / Reactivation остаётся только архитектурным требованием. Ручной warming scheduler обслуживает только индивидуальные operations текущего funnel entry. Automatic runner, массовый warming и reactivation messages не реализованы.
 
 ## G. Application
 
@@ -1047,6 +1063,7 @@ application without further relationship: 12 months
 - in-memory storage как safe-default lab implementation;
 - PostgreSQL store для users, attribution, Telegram updates, events, applications и deletion requests;
 - database-level duplicate `update_id` protection, сохраняющаяся после restart.
+- persistent per-user warming operations, manual scheduler, jitter, cancellation, limits и recovery compatibility.
 
 ### Сознательно откладывается
 
@@ -1066,7 +1083,7 @@ application without further relationship: 12 months
 - analytics/cookies и изменение legal pages;
 - DNS, hosting, deploy и production secrets;
 - автоматические CRM-статусы после отправки заявки;
-- scheduler, warming executor и Lifecycle / Reactivation executor;
+- automatic scheduler runner, массовый warming и Lifecycle / Reactivation executor;
 - полноценная multi-touch attribution;
 - сложная authentication system.
 

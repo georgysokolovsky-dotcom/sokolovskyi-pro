@@ -11,9 +11,10 @@ Telegram /start
   → bonus https://t.me/georgy_sokolovsky/44
   → purpose-bound webinar token
   → webinar invite с подписанной URL
+  → persistent warming schedule
 ```
 
-Бонус `/16` остаётся draft и не отправляется. Warming хранится только как конфигурация: scheduler и background jobs не запускаются.
+Бонус `/16` остаётся draft и не отправляется. Warming scheduler реализован только как ручной per-user executor: cron, daemon и массовый обход базы не запускаются.
 
 ## Telegram transport
 
@@ -44,6 +45,8 @@ Runner применяет только ещё не записанные SQL-фа
 
 `002_delivery_operations.sql` добавляет persistent operation state, а `003_delivery_dependencies.sql` — безопасную последовательность `entry_notice` → `bonus` → `webinar_invite`. Запись хранит стабильный ключ, update/user/funnel/recipient, descriptor без signed URL, attempts, lease, нормализованную ошибку и Telegram receipt.
 
+`004_warming_scheduler.sql` расширяет ту же таблицу scheduled-полями, warming rule, message class, cancellation reason и отдельным scheduler lease. Параллельная очередь не создаётся.
+
 ## Ручной recovery
 
 После migration незавершённые операции можно обработать вручную:
@@ -72,6 +75,28 @@ pending → processing → delivered
 - перед каждой отправкой проверяются `/stop`, deletion request и `lead_status=sold`; операция становится `suppressed` без transport-вызова.
 
 Логи recovery содержат только operation ID, message type, attempt, result category и факт запланированного retry. Bot token, `DATABASE_URL`, Telegram identity и signed webinar URL не выводятся.
+
+## Ручной warming scheduler
+
+```bash
+npm --prefix server run scheduler
+```
+
+Один запуск выбирает только due operations, атомарно захватывает их scheduler lease, повторно читает user/events/rule/dependency, а затем переводит запись в обычный delivery `pending`. Саму отправку выполняет recovery layer.
+
+Текущие rules:
+
+- `webinar_reminder_15m` и `webinar_reminder_3h` — от `bonus_sent`, с общей dependency на delivered webinar invite; cancellation после `webinar_started` или progress;
+- `continue_watching_6h` — от `webinar_started`; `watched_25` переносит окно ещё на 6 часов, cancellation после 50%+ или completion;
+- `application_follow_up_2h` — консервативно от `watched_75`; cancellation после `cta_clicked`, `application_started` или `application_submitted`.
+
+К номинальному timing добавляется deterministic-testable jitter `0–60` секунд. Policy ограничивает один funnel entry четырьмя scheduled operations и двумя delivered promotional messages за rolling 7 days. Одна rule/version планируется для entry только один раз.
+
+Структурированный итог содержит `considered`, `due`, `claimed`, `cancelled`, `suppressed`, `delivered`, `errors`, `deferred`, `notDue`. `dead_letter` и `delivery_unknown` доступны read-only:
+
+```bash
+npm --prefix server run operations:inspect
+```
 
 ## Запуск
 
@@ -128,7 +153,7 @@ npm run test:funnel
 FUNNEL_TEST_DATABASE_URL='postgresql://localhost/men_funnel_test' npm --prefix server run test:postgres
 ```
 
-Тесты создают и удаляют уникальные schema внутри этой базы. Они проверяют crash/restart, delivered guard, lease, backoff, permanent и unknown outcome, suppression и гонку двух executor. Без `FUNNEL_TEST_DATABASE_URL` они явно отмечаются как skipped.
+Тесты создают и удаляют уникальные schema внутри этой базы. Они проверяют recovery и scheduler A–O: virtual time, jitter, message limits, cancellation, crash/restart, terminal states, suppression и гонки executor. Без `FUNNEL_TEST_DATABASE_URL` PostgreSQL tests явно отмечаются как skipped.
 
 ## Ограничения
 
@@ -137,5 +162,6 @@ FUNNEL_TEST_DATABASE_URL='postgresql://localhost/men_funnel_test' npm --prefix s
 - При ошибке текущего шага немедленный webhook-flow останавливается. Подготовленные зависимые operations остаются заблокированными до подтверждённой доставки предыдущего шага; ручной recovery продолжает цепочку только по безопасным состояниям.
 - Telegram update сохраняет исходный `failed`/`error_stage`; recovery имеет отдельную operation timeline и не переписывает исторический результат webhook.
 - Публичный webinar route, production hosting, CRM integration и реальное видео не подключены.
-- Recovery остаётся ручным. Operator UI, ручное разрешение `delivery_unknown`, jitter, alerts и scheduler отсутствуют.
+- Recovery и scheduler остаются ручными. Operator UI, ручное разрешение `delivery_unknown`, alerts и automatic runner отсутствуют.
+- Fixture ссылается на `watched_75` и `includesProgress: ['watched_90']` одновременно. Scheduler не создаёт application follow-up только из прямого `watched_90`, пока trigger contract не будет уточнён.
 - Telegram Bot API не поддерживает idempotency key для `sendMessage`. Если provider принял сообщение, а процесс умер до сохранения receipt, операция намеренно остаётся `delivery_unknown`; автоматический дубль не создаётся.

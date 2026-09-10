@@ -219,8 +219,30 @@ export class MemoryStore {
       id: randomUUID(), operationKey, funnelId, userId,
       telegramUpdateId: telegramUpdateId == null ? null : String(telegramUpdateId),
       telegramChatId: String(telegramChatId), messageType, dependsOnOperationId, descriptor: clone(descriptor),
+      warmingRuleId: null, messageClass: null, funnelEntryKey: null,
+      scheduledFor: null, earliestExecutionAt: null, cancellationReason: null, executedAt: null,
+      schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null,
       status: 'pending', attemptCount: 0, maxAttempts, nextAttemptAt: timestamp,
       leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null, requestStartedAt: null,
+      provider: null, providerMessageId: null, deliveredAt: null,
+      lastErrorCode: null, lastErrorCategory: null, createdAt: timestamp, updatedAt: timestamp,
+    };
+    this.deliveryOperations.set(operation.id, operation);
+    return clone(operation);
+  }
+
+  createScheduledDeliveryOperation({ operationKey, funnelId, userId, telegramChatId, warmingRuleId, messageClass, funnelEntryKey, scheduledFor, earliestExecutionAt, dependsOnOperationId = null, descriptor = {}, maxAttempts = 3 }) {
+    const existing = [...this.deliveryOperations.values()].find((item) => item.funnelId === funnelId && item.operationKey === operationKey);
+    if (existing) return clone(existing);
+    const timestamp = this.now().toISOString();
+    const operation = {
+      id: randomUUID(), operationKey, funnelId, userId, telegramUpdateId: null,
+      telegramChatId: String(telegramChatId), messageType: 'warming', dependsOnOperationId,
+      descriptor: clone(descriptor), warmingRuleId, messageClass, funnelEntryKey,
+      scheduledFor, earliestExecutionAt, cancellationReason: null, executedAt: null,
+      status: 'scheduled', attemptCount: 0, maxAttempts, nextAttemptAt: earliestExecutionAt,
+      leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null, requestStartedAt: null,
+      schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null,
       provider: null, providerMessageId: null, deliveredAt: null,
       lastErrorCode: null, lastErrorCategory: null, createdAt: timestamp, updatedAt: timestamp,
     };
@@ -232,6 +254,66 @@ export class MemoryStore {
 
   listDeliveryOperations({ userId = null, status = null } = {}) {
     return clone([...this.deliveryOperations.values()].filter((item) => (!userId || item.userId === userId) && (!status || item.status === status)));
+  }
+
+  getDeliveryOperationByKey(funnelId, operationKey) {
+    return clone([...this.deliveryOperations.values()].find((item) => item.funnelId === funnelId && item.operationKey === operationKey) ?? null);
+  }
+
+  schedulerSnapshot({ funnelId, now = this.now().toISOString() }) {
+    const operations = [...this.deliveryOperations.values()].filter((item) => item.funnelId === funnelId && item.messageType === 'warming' && ['scheduled', 'scheduler_processing'].includes(item.status));
+    const due = operations.filter((item) => (item.status === 'scheduled' && new Date(item.earliestExecutionAt) <= new Date(now))
+      || (item.status === 'scheduler_processing' && new Date(item.schedulerLeaseExpiresAt) <= new Date(now))).length;
+    return { considered: operations.length, due, notDue: operations.length - due };
+  }
+
+  claimScheduledOperation({ funnelId, workerId, leaseMs, now = this.now().toISOString() }) {
+    const nowMs = new Date(now).getTime();
+    const operation = [...this.deliveryOperations.values()].find((item) => item.funnelId === funnelId && item.messageType === 'warming'
+      && ((item.status === 'scheduled' && new Date(item.earliestExecutionAt).getTime() <= nowMs)
+        || (item.status === 'scheduler_processing' && new Date(item.schedulerLeaseExpiresAt).getTime() <= nowMs)));
+    if (!operation) return null;
+    Object.assign(operation, { status: 'scheduler_processing', schedulerLeaseOwner: workerId, schedulerLeaseStartedAt: now, schedulerLeaseExpiresAt: new Date(nowMs + leaseMs).toISOString(), updatedAt: now });
+    return clone(operation);
+  }
+
+  finishScheduledOperation({ operationId, workerId, status, cancellationReason = null, earliestExecutionAt = null }) {
+    const operation = this.deliveryOperations.get(operationId);
+    if (!operation || operation.status !== 'scheduler_processing' || operation.schedulerLeaseOwner !== workerId) return clone(operation ?? null);
+    const timestamp = this.now().toISOString();
+    Object.assign(operation, {
+      status, cancellationReason,
+      earliestExecutionAt: earliestExecutionAt ?? operation.earliestExecutionAt,
+      executedAt: ['pending', 'cancelled', 'suppressed'].includes(status) ? timestamp : operation.executedAt,
+      nextAttemptAt: status === 'pending' ? (earliestExecutionAt ?? operation.earliestExecutionAt) : operation.nextAttemptAt,
+      lastErrorCode: status === 'suppressed' ? cancellationReason : operation.lastErrorCode,
+      lastErrorCategory: status === 'suppressed' ? 'permanent' : operation.lastErrorCategory,
+      schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null,
+      updatedAt: timestamp,
+    });
+    return clone(operation);
+  }
+
+  cancelScheduledOperation({ operationId, reason }) {
+    const operation = this.deliveryOperations.get(operationId);
+    if (!operation || operation.status !== 'scheduled') return null;
+    Object.assign(operation, { status: 'cancelled', cancellationReason: reason, updatedAt: this.now().toISOString() });
+    return clone(operation);
+  }
+
+  cancelScheduledWarming({ userId, funnelId, reason, status = 'cancelled' }) {
+    const timestamp = this.now().toISOString();
+    const changed = [];
+    for (const operation of this.deliveryOperations.values()) {
+      if (operation.userId !== userId || operation.funnelId !== funnelId || operation.messageType !== 'warming' || !['scheduled', 'scheduler_processing'].includes(operation.status)) continue;
+      Object.assign(operation, { status, cancellationReason: reason, lastErrorCode: status === 'suppressed' ? reason : operation.lastErrorCode, lastErrorCategory: status === 'suppressed' ? 'permanent' : operation.lastErrorCategory, schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null, updatedAt: timestamp });
+      changed.push(clone(operation));
+    }
+    return changed;
+  }
+
+  listExceptionalDeliveryOperations({ funnelId }) {
+    return clone([...this.deliveryOperations.values()].filter((item) => item.funnelId === funnelId && ['dead_letter', 'delivery_unknown'].includes(item.status)));
   }
 
   claimDeliveryOperation({ workerId, leaseMs, operationId = null, now = this.now().toISOString() }) {
@@ -261,13 +343,15 @@ export class MemoryStore {
     return clone(operation);
   }
 
-  finishDeliveryOperation({ operationId, workerId, status, provider = null, providerMessageId = null, errorCode = null, errorCategory = null, nextAttemptAt = null, outcome = null }) {
+  finishDeliveryOperation({ operationId, workerId, status, provider = null, providerMessageId = null, errorCode = null, errorCategory = null, nextAttemptAt = null, cancellationReason = null, outcome = null }) {
     const operation = this.deliveryOperations.get(operationId);
     if (!operation || operation.status !== 'processing' || operation.leaseOwner !== workerId) return clone(operation ?? null);
     const timestamp = this.now().toISOString();
     Object.assign(operation, {
       status, provider, providerMessageId,
       deliveredAt: status === 'delivered' ? timestamp : null,
+      executedAt: status === 'delivered' ? timestamp : operation.executedAt,
+      cancellationReason,
       lastErrorCode: errorCode, lastErrorCategory: errorCategory,
       nextAttemptAt: nextAttemptAt ?? operation.nextAttemptAt,
       leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null,
@@ -276,8 +360,8 @@ export class MemoryStore {
     });
     if (status === 'suppressed') {
       for (const dependent of this.deliveryOperations.values()) {
-        if (dependent.funnelId === operation.funnelId && dependent.userId === operation.userId && ['pending', 'retryable_failed'].includes(dependent.status)) {
-          Object.assign(dependent, { status: 'suppressed', lastErrorCode: errorCode, lastErrorCategory: 'permanent', updatedAt: timestamp });
+        if (dependent.funnelId === operation.funnelId && dependent.userId === operation.userId && ['scheduled', 'scheduler_processing', 'pending', 'retryable_failed'].includes(dependent.status)) {
+          Object.assign(dependent, { status: 'suppressed', lastErrorCode: errorCode, lastErrorCategory: 'permanent', schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null, updatedAt: timestamp });
         }
       }
     }

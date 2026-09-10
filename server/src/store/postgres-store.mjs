@@ -36,6 +36,11 @@ function mapDeliveryOperation(row) {
     telegramUpdateId: row.telegram_update_id == null ? null : String(row.telegram_update_id),
     telegramChatId: String(row.telegram_chat_id), messageType: row.message_type,
     dependsOnOperationId: row.depends_on_operation_id, descriptor: row.descriptor,
+    warmingRuleId: row.warming_rule_id, messageClass: row.message_class,
+    funnelEntryKey: row.funnel_entry_key, scheduledFor: iso(row.scheduled_for),
+    earliestExecutionAt: iso(row.earliest_execution_at), cancellationReason: row.cancellation_reason,
+    executedAt: iso(row.executed_at), schedulerLeaseOwner: row.scheduler_lease_owner,
+    schedulerLeaseStartedAt: iso(row.scheduler_lease_started_at), schedulerLeaseExpiresAt: iso(row.scheduler_lease_expires_at),
     status: row.status, attemptCount: row.attempt_count, maxAttempts: row.max_attempts,
     nextAttemptAt: iso(row.next_attempt_at), leaseOwner: row.lease_owner,
     leaseStartedAt: iso(row.lease_started_at), leaseExpiresAt: iso(row.lease_expires_at),
@@ -171,6 +176,16 @@ export class PostgresStore {
     return mapDeliveryOperation(row);
   }
 
+  async createScheduledDeliveryOperation({operationKey,funnelId,userId,telegramChatId,warmingRuleId,messageClass,funnelEntryKey,scheduledFor,earliestExecutionAt,dependsOnOperationId=null,descriptor={},maxAttempts=3}) {
+    const row=(await this.pool.query(`insert into delivery_operations
+      (id,operation_key,funnel_id,user_id,telegram_chat_id,message_type,depends_on_operation_id,descriptor,status,
+       max_attempts,next_attempt_at,warming_rule_id,message_class,funnel_entry_key,scheduled_for,earliest_execution_at)
+      values ($1,$2,$3,$4,$5,'warming',$6,$7,'scheduled',$8,$9,$10,$11,$12,$13,$9)
+      on conflict (funnel_id,operation_key) do update set operation_key=excluded.operation_key returning *`,
+    [randomUUID(),operationKey,funnelId,userId,String(telegramChatId),dependsOnOperationId,JSON.stringify(descriptor),maxAttempts,earliestExecutionAt,warmingRuleId,messageClass,funnelEntryKey,scheduledFor])).rows[0];
+    return mapDeliveryOperation(row);
+  }
+
   async getDeliveryOperation(operationId) {
     return mapDeliveryOperation((await this.pool.query('select * from delivery_operations where id=$1',[operationId])).rows[0]);
   }
@@ -181,6 +196,70 @@ export class PostgresStore {
     if (userId) { values.push(userId); where.push(`user_id=$${values.length}`); }
     if (status) { values.push(status); where.push(`status=$${values.length}`); }
     const rows=(await this.pool.query(`select * from delivery_operations${where.length?` where ${where.join(' and ')}`:''} order by created_at,id`,values)).rows;
+    return rows.map(mapDeliveryOperation);
+  }
+
+  async getDeliveryOperationByKey(funnelId,operationKey) {
+    return mapDeliveryOperation((await this.pool.query('select * from delivery_operations where funnel_id=$1 and operation_key=$2',[funnelId,operationKey])).rows[0]);
+  }
+
+  async schedulerSnapshot({funnelId,now=new Date().toISOString()}) {
+    const row=(await this.pool.query(`select
+      count(*) filter (where message_type='warming' and status in ('scheduled','scheduler_processing'))::int as considered,
+      count(*) filter (where message_type='warming' and ((status='scheduled' and earliest_execution_at <= $2)
+        or (status='scheduler_processing' and scheduler_lease_expires_at <= $2)))::int as due
+      from delivery_operations where funnel_id=$1`,[funnelId,now])).rows[0];
+    return {considered:row.considered,due:row.due,notDue:row.considered-row.due};
+  }
+
+  async claimScheduledOperation({funnelId,workerId,leaseMs,now=new Date().toISOString()}) {
+    return this.transaction(async(db)=>{
+      const row=(await db.query(`select operation.* from delivery_operations operation
+        where operation.funnel_id=$1 and operation.message_type='warming'
+          and ((operation.status='scheduled' and operation.earliest_execution_at <= $2)
+            or (operation.status='scheduler_processing' and operation.scheduler_lease_expires_at <= $2))
+        order by operation.earliest_execution_at,operation.created_at,operation.id
+        for update of operation skip locked limit 1`,[funnelId,now])).rows[0];
+      if (!row) return null;
+      const expires=new Date(new Date(now).getTime()+leaseMs).toISOString();
+      return mapDeliveryOperation((await db.query(`update delivery_operations set status='scheduler_processing',
+        scheduler_lease_owner=$2,scheduler_lease_started_at=$3,scheduler_lease_expires_at=$4,updated_at=$3
+        where id=$1 returning *`,[row.id,workerId,now,expires])).rows[0]);
+    });
+  }
+
+  async finishScheduledOperation({operationId,workerId,status,cancellationReason=null,earliestExecutionAt=null}) {
+    const row=(await this.pool.query(`update delivery_operations set status=$3,cancellation_reason=$4,
+      earliest_execution_at=coalesce($5,earliest_execution_at),
+      executed_at=case when $3 in ('pending','cancelled','suppressed') then now() else executed_at end,
+      next_attempt_at=case when $3='pending' then coalesce($5,earliest_execution_at) else next_attempt_at end,
+      last_error_code=case when $3='suppressed' then $4 else last_error_code end,
+      last_error_category=case when $3='suppressed' then 'permanent' else last_error_category end,
+      scheduler_lease_owner=null,scheduler_lease_started_at=null,scheduler_lease_expires_at=null,updated_at=now()
+      where id=$1 and status='scheduler_processing' and scheduler_lease_owner=$2 returning *`,
+    [operationId,workerId,status,cancellationReason,earliestExecutionAt])).rows[0];
+    return mapDeliveryOperation(row);
+  }
+
+  async cancelScheduledOperation({operationId,reason}) {
+    return mapDeliveryOperation((await this.pool.query(`update delivery_operations set status='cancelled',cancellation_reason=$2,
+      scheduler_lease_owner=null,scheduler_lease_started_at=null,scheduler_lease_expires_at=null,updated_at=now()
+      where id=$1 and status='scheduled' returning *`,[operationId,reason])).rows[0]);
+  }
+
+  async cancelScheduledWarming({userId,funnelId,reason,status='cancelled'}) {
+    const rows=(await this.pool.query(`update delivery_operations set status=$4,cancellation_reason=$3,
+      last_error_code=case when $4='suppressed' then $3 else last_error_code end,
+      last_error_category=case when $4='suppressed' then 'permanent' else last_error_category end,
+      scheduler_lease_owner=null,scheduler_lease_started_at=null,scheduler_lease_expires_at=null,updated_at=now()
+      where user_id=$1 and funnel_id=$2 and message_type='warming' and status in ('scheduled','scheduler_processing') returning *`,
+    [userId,funnelId,reason,status])).rows;
+    return rows.map(mapDeliveryOperation);
+  }
+
+  async listExceptionalDeliveryOperations({funnelId}) {
+    const rows=(await this.pool.query(`select * from delivery_operations where funnel_id=$1
+      and status in ('dead_letter','delivery_unknown') order by updated_at,id`,[funnelId])).rows;
     return rows.map(mapDeliveryOperation);
   }
 
@@ -210,18 +289,20 @@ export class PostgresStore {
     return mapDeliveryOperation(row);
   }
 
-  async finishDeliveryOperation({operationId,workerId,status,provider=null,providerMessageId=null,errorCode=null,errorCategory=null,nextAttemptAt=null,outcome=null}) {
+  async finishDeliveryOperation({operationId,workerId,status,provider=null,providerMessageId=null,errorCode=null,errorCategory=null,nextAttemptAt=null,cancellationReason=null,outcome=null}) {
     return this.transaction(async(db)=>{
       const row=(await db.query(`update delivery_operations set status=$3,provider=$4,provider_message_id=$5,
         delivered_at=case when $3='delivered' then now() else null end,last_error_code=$6,last_error_category=$7,
+        executed_at=case when $3 in ('delivered','cancelled') then now() else executed_at end,cancellation_reason=$9,
         next_attempt_at=coalesce($8,next_attempt_at),lease_owner=null,lease_started_at=null,lease_expires_at=null,
         request_started_at=case when $3='retryable_failed' then null else request_started_at end,updated_at=now()
         where id=$1 and status='processing' and lease_owner=$2 returning *`,
-      [operationId,workerId,status,provider,providerMessageId,errorCode,errorCategory,nextAttemptAt])).rows[0];
+      [operationId,workerId,status,provider,providerMessageId,errorCode,errorCategory,nextAttemptAt,cancellationReason])).rows[0];
       if (!row) return mapDeliveryOperation((await db.query('select * from delivery_operations where id=$1',[operationId])).rows[0]);
       if (status==='suppressed') await db.query(`update delivery_operations set status='suppressed',last_error_code=$3,last_error_category='permanent',
-        next_attempt_at=now(),lease_owner=null,lease_started_at=null,lease_expires_at=null,updated_at=now()
-        where funnel_id=$1 and user_id=$2 and status in ('pending','retryable_failed')`,[row.funnel_id,row.user_id,errorCode]);
+        next_attempt_at=now(),lease_owner=null,lease_started_at=null,lease_expires_at=null,
+        scheduler_lease_owner=null,scheduler_lease_started_at=null,scheduler_lease_expires_at=null,updated_at=now()
+        where funnel_id=$1 and user_id=$2 and status in ('scheduled','scheduler_processing','pending','retryable_failed')`,[row.funnel_id,row.user_id,errorCode]);
       if (outcome?.userPatch) await this.updateUser(row.user_id,outcome.userPatch,db);
       if (outcome?.event) await this.addEvent(outcome.event,db);
       return mapDeliveryOperation(row);
