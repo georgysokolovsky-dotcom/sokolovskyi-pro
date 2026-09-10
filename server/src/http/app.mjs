@@ -1,7 +1,11 @@
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { FunnelError } from '../flow/men-webinar.mjs';
+import { renderWebinarDeniedPage, renderWebinarPage } from '../webinar/page.mjs';
 
 const maxBodyBytes = 64 * 1024;
+const playerClient = readFileSync(new URL('../webinar/player-client.js', import.meta.url));
+const stagingMedia = readFileSync(new URL('../../assets/staging-webinar-fixture.mp4', import.meta.url));
 
 async function readJson(request) {
   const chunks = [];
@@ -27,6 +31,39 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+function sendWebinarDocument(response, status, body) {
+  response.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'DENY',
+    'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  });
+  response.end(body);
+}
+
+function sendStagingMedia(request, response) {
+  const media = stagingMedia;
+  const range = request.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
+  if (!range) {
+    response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': media.length, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600' });
+    return response.end(media);
+  }
+  const start = range[1] ? Number(range[1]) : 0;
+  const end = range[2] ? Math.min(Number(range[2]), media.length - 1) : media.length - 1;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= media.length) {
+    response.writeHead(416, { 'content-range': `bytes */${media.length}` });
+    return response.end();
+  }
+  response.writeHead(206, {
+    'content-type': 'video/mp4', 'content-length': end - start + 1,
+    'content-range': `bytes ${start}-${end}/${media.length}`, 'accept-ranges': 'bytes',
+    'cache-control': 'private, max-age=3600',
+  });
+  return response.end(media.subarray(start, end + 1));
+}
+
 function requireLocalAdmin(request, adminKey) {
   if (!adminKey || request.headers['x-admin-local-key'] !== adminKey) throw new FunnelError('unauthorized', 'Unauthorized', 401);
 }
@@ -46,6 +83,26 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
 
       if (method === 'GET' && url.pathname === '/health') {
         return sendJson(response, 200, { ok: true, mode });
+      }
+
+      if (method === 'GET' && url.pathname === '/v1/webinar/player.js') {
+        response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        return response.end(playerClient);
+      }
+
+      if (method === 'GET' && url.pathname === '/v1/webinar/media/lab-men-funnel-video-fixture') {
+        return sendStagingMedia(request, response);
+      }
+
+      const webinarPageMatch = url.pathname.match(/^\/webinar\/([a-z0-9_-]{1,120})$/i);
+      if (method === 'GET' && webinarPageMatch) {
+        try {
+          const session = await flow.openWebinarPage({ token: url.searchParams.get('t'), videoId: webinarPageMatch[1] });
+          return sendWebinarDocument(response, 200, renderWebinarPage(session));
+        } catch (error) {
+          const status = error instanceof FunnelError ? error.status : 500;
+          return sendWebinarDocument(response, status, renderWebinarDeniedPage());
+        }
       }
 
       if (method === 'POST' && url.pathname === '/v1/test/telegram/start') {
@@ -86,9 +143,21 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
         return sendJson(response, 200, { ok: true, funnelId: session.funnelId, purpose: session.purpose, webinar: session.webinar });
       }
 
-      if (method === 'POST' && url.pathname === '/v1/events') {
+      if (method === 'POST' && url.pathname === '/v1/webinar/telemetry') {
         const body = await readJson(request);
-        const result = await flow.recordTokenEvent(body);
+        const result = await flow.ingestWebinarTelemetry(body);
+        return sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
+      }
+
+      if (method === 'POST' && url.pathname === '/v1/webinar/cta') {
+        const body = await readJson(request);
+        const result = await flow.recordWebinarCta(body);
+        return sendJson(response, result.duplicate ? 200 : 201, { ok: true, eventType: result.event.eventType, duplicate: result.duplicate, leadStatus: result.status });
+      }
+
+      if (method === 'POST' && url.pathname === '/v1/applications/events') {
+        const body = await readJson(request);
+        const result = await flow.recordApplicationStarted(body);
         return sendJson(response, result.duplicate ? 200 : 201, { ok: true, eventType: result.event.eventType, duplicate: result.duplicate, leadStatus: result.status });
       }
 

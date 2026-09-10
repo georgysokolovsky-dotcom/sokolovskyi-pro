@@ -11,7 +11,9 @@
 
 `Telegram Start → entry notice → bonus delivery → webinar token → webinar events → application token → application`
 
-Для видео используется внутренний reference `lab://men-funnel/video/lab-men-funnel-video-fixture`. Реальный Telegram token в репозитории не хранится. По умолчанию delivery выполняется через dev/mock transport; отдельный staging может явно включить Bot API и PostgreSQL.
+Для webinar используется token-protected route isolated server и 40-секундный local media fixture. Реальный Telegram token в репозитории не хранится. По умолчанию delivery выполняется через dev/mock transport; отдельный staging может явно включить Bot API и PostgreSQL.
+
+Lab Astro screen теперь только передаёт signed token в isolated server route. Player telemetry, milestones и CTA обрабатываются server-side.
 
 Целевая event model использует `bonus_delivery_attempted`, `bonus_sent` и `bonus_delivery_failed`; событие `bonus_received` в новом vertical slice не используется. Webinar и application используют разные purpose-bound signed token.
 

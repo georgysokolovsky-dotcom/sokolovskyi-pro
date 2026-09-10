@@ -52,6 +52,7 @@ const breadcrumbItems = [{ label: 'Заявка' }];
   const token = new URLSearchParams(window.location.search).get('t');
   const origin = apiOrigin.replace(/\/$/, '');
   const fieldNames = ['name', 'situation'];
+  const applicationRequestId = crypto.randomUUID();
 
   const setStatus = (message, tone = '') => {
     if (!status) return;
@@ -62,14 +63,12 @@ const breadcrumbItems = [{ label: 'Заявка' }];
 
   const emitStarted = () => {
     if (!origin || !token) return;
-    fetch(`${origin}/v1/events`, {
+    fetch(`${origin}/v1/applications/events`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         token,
-        eventType: 'application_started',
-        metadata: {},
-        idempotencyKey: `application-started:${token.slice(-12)}`,
+        requestId: crypto.randomUUID(),
       }),
       keepalive: true,
     }).catch(() => {});
@@ -107,7 +106,7 @@ const breadcrumbItems = [{ label: 'Заявка' }];
             source: 'video-application',
             timestamp: new Date().toISOString(),
           },
-          idempotencyKey: `application:${token.slice(-24)}`,
+          idempotencyKey: applicationRequestId,
         }),
       });
       const payload = await response.json();

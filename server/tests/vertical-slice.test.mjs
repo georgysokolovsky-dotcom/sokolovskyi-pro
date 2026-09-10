@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { MemoryStore } from '../src/store/memory-store.mjs';
 import { localFixture } from '../src/data/local-fixture.mjs';
 import { FUNNEL_EVENTS } from '../src/constants.mjs';
@@ -12,7 +13,8 @@ const webhookSecret = 'test-webhook-secret';
 const adminKey = 'test-admin-key';
 
 async function makeTestServer({ transport } = {}) {
-  const store = new MemoryStore();
+  const clock = { value: new Date() };
+  const store = new MemoryStore({ now: () => clock.value });
   store.seed(localFixture);
   const flow = createMenWebinarFlow({
     store,
@@ -20,11 +22,12 @@ async function makeTestServer({ transport } = {}) {
     botUsername: 'sokolovskyi_men_bot',
     entryNotice: localFixture.entryNotice,
     transport: transport ?? createDevTelegramTransport(),
+    now: () => clock.value,
   });
   const app = createApp({ flow, mode: 'local', webhookSecret, adminKey });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   const address = app.address();
-  return { app, flow, store, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { app, flow, store, clock, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
 async function request(server, path, options = {}) {
@@ -51,9 +54,17 @@ async function start(server, { telegramUserId, startParameter = 'article_wife_ch
 }
 
 async function event(server, token, eventType, idempotencyKey, metadata = {}) {
-  return request(server, '/v1/events', {
+  const path = eventType === 'cta_clicked' ? '/v1/webinar/cta' : '/v1/applications/events';
+  return request(server, path, {
     method: 'POST',
-    body: JSON.stringify({ token, eventType, idempotencyKey, metadata }),
+    body: JSON.stringify({ token, requestId: idempotencyKey }),
+  });
+}
+
+async function telemetry(server, token, clientSessionId, action, positionSeconds, requestId = randomUUID()) {
+  return request(server, '/v1/webinar/telemetry', {
+    method: 'POST',
+    body: JSON.stringify({ token, clientSessionId, requestId, action, positionSeconds, durationSeconds: 40 }),
   });
 }
 
@@ -85,23 +96,26 @@ test('happy path keeps the approved event model from Telegram Start through CRM 
   const session = await request(server, '/v1/webinar/session', { method: 'POST', body: JSON.stringify({ token: webinarToken }) });
   assert.equal(session.response.status, 200);
   assert.equal(session.body.purpose, 'webinar');
-  assert.equal(session.body.webinar.videoProvider, 'lab');
+  assert.equal(session.body.webinar.videoProvider, 'native-html5');
   assert.equal(session.body.webinar.videoId, 'lab-men-funnel-video-fixture');
-
-  for (const [eventType, idempotencyKey, metadata] of [
-    ['webinar_page_view', 'page-1', { video_id: 'fixture-video' }],
-    ['webinar_started', 'started-1', { video_id: 'fixture-video' }],
-    ['watched_25', 'watched-25-1', { threshold: 25 }],
-    ['watched_50', 'watched-50-1', { threshold: 50 }],
-    ['watched_75', 'watched-75-1', { threshold: 75 }],
-    ['cta_clicked', 'cta-1', { placement: 'webinar' }],
-  ]) {
-    const result = await event(server, webinarToken, eventType, idempotencyKey, metadata);
+  const page = await fetch(`${server.baseUrl}/webinar/lab-men-funnel-video-fixture?t=${encodeURIComponent(webinarToken)}`);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /data-webinar-root/);
+  const playerSession = randomUUID();
+  await telemetry(server, webinarToken, playerSession, 'play', 0);
+  for (const position of [10, 20, 30]) {
+    server.clock.value = new Date(server.clock.value.getTime() + 10_000);
+    const result = await telemetry(server, webinarToken, playerSession, 'heartbeat', position);
     assert.equal(result.response.status, 201);
-    assert.equal(result.body.duplicate, false);
   }
+  const cta = await event(server, webinarToken, 'cta_clicked', randomUUID());
+  assert.equal(cta.response.status, 201);
 
-  const duplicate = await event(server, webinarToken, 'watched_50', 'watched-50-1', { threshold: 50 });
+  const duplicateRequestId = randomUUID();
+  server.clock.value = new Date(server.clock.value.getTime() + 1_000);
+  const firstPause = await telemetry(server, webinarToken, playerSession, 'pause', 31, duplicateRequestId);
+  const duplicate = await telemetry(server, webinarToken, playerSession, 'pause', 31, duplicateRequestId);
+  assert.equal(firstPause.response.status, 201);
   assert.equal(duplicate.response.status, 200);
   assert.equal(duplicate.body.duplicate, true);
 
@@ -116,7 +130,7 @@ test('happy path keeps the approved event model from Telegram Start through CRM 
   assert.notEqual(applicationAccess.body.token, webinarToken);
 
   const appToken = applicationAccess.body.token;
-  const appEvent = await event(server, appToken, 'application_started', 'application-started-1');
+  const appEvent = await event(server, appToken, 'application_started', randomUUID());
   assert.equal(appEvent.response.status, 201);
 
   const application = await request(server, '/v1/applications', {
@@ -281,7 +295,7 @@ test('webinar and application tokens are purpose-bound', async (t) => {
   const noCta = await request(server, '/v1/applications/token', { method: 'POST', body: JSON.stringify({ token: webinarToken }) });
   assert.equal(noCta.response.status, 409);
 
-  await event(server, webinarToken, 'cta_clicked', 'cta-token-separation', { placement: 'webinar' });
+  await event(server, webinarToken, 'cta_clicked', randomUUID());
   const access = await request(server, '/v1/applications/token', { method: 'POST', body: JSON.stringify({ token: webinarToken }) });
   assert.equal(access.response.status, 201);
   const applicationToken = access.body.token;
@@ -324,7 +338,7 @@ test('invalid application does not create application_submitted and warming rule
   t.after(() => server.app.close());
   const started = await start(server, { telegramUserId: 777, updateId: 8 });
   const webinarToken = started.body.webinar.token;
-  await event(server, webinarToken, 'cta_clicked', 'cta-invalid-app', { placement: 'webinar' });
+  await event(server, webinarToken, 'cta_clicked', randomUUID());
   const access = await request(server, '/v1/applications/token', { method: 'POST', body: JSON.stringify({ token: webinarToken }) });
 
   const invalid = await request(server, '/v1/applications', {

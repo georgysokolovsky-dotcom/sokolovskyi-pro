@@ -49,6 +49,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `lab/men-funnel/prototype/apply/men.astro` — lab-экран application;
 - `server/src/data/local-fixture.mjs` — локальная конфигурация funnel, bonus, message templates и webinar;
 - `server/src/flow/men-webinar.mjs` — Telegram Start, выдача bonus, signed video token, события и application;
+- `server/src/webinar/` — token-protected page, native player adapter, progress semantics и local media fixture;
 - `server/src/security/signed-tokens.mjs` — текущий HMAC token с TTL 1 час;
 - `server/src/store/memory-store.mjs` — in-memory хранилище для lab;
 - `server/src/store/postgres-store.mjs` — persistent implementation того же store contract;
@@ -56,9 +57,10 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `server/migrations/002_delivery_operations.sql` — persistent delivery operations, lease и recovery state machine;
 - `server/migrations/003_delivery_dependencies.sql` — порядок зависимых шагов delivery после restart;
 - `server/migrations/004_warming_scheduler.sql` — persistent warming fields, scheduler lease, cancellation и per-entry uniqueness;
+- `server/migrations/005_webinar_progress.sql` — first-party player sessions, idempotent telemetry requests и watched ranges;
 - `server/tests/vertical-slice.test.mjs` — проверка пути от Telegram Start до application.
 
-В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Реальный видеоматериал не подключён.
+В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Вместо реального видеоматериала подключён local media fixture.
 
 ### Конфигурация первой версии
 
@@ -481,7 +483,7 @@ Telegram Start
 если webinar_started, но просмотр остановился до 50%
   → сообщение «продолжить просмотр» через 6 часов отсутствия активности
 
-если watched_75 или выше и application не отправлена
+если watched_75 и application не отправлена
   → follow-up через 2 часа
 
 если application_submitted
@@ -522,7 +524,7 @@ after webinar availability, if webinar_started absent:
 after webinar_started, if max_progress < 50 and inactive:
   continue_watching: 21600 seconds
 
-after watched_75 or watched_90, if application_submitted absent:
+after watched_75, if application_submitted absent:
   follow_up: 7200 seconds
 
 after application_submitted:
@@ -575,7 +577,7 @@ Cancellation определяется по rule:
 
 Scheduler запускается только вручную. Он атомарно claims due operation, перепроверяет rule, events, dependency, limits и suppression, затем передаёт operation recovery layer. После crash обычный recovery снова проверяет cancellation перед send. `dead_letter` и `delivery_unknown` не возвращаются в scheduler автоматически.
 
-Конфликт config зафиксирован fail closed: `application_follow_up_2h` имеет trigger `watched_75`, но также `includesProgress: ['watched_90']`; спецификация говорит «75 или 90». Текущий scheduler создаёт rule только по явному trigger `watched_75`; прямой `watched_90` не активирует её до уточнения config contract.
+`application_follow_up_2h` имеет один достаточный trigger `watched_75`; `watched_90` не требуется для scheduling.
 
 ## E. Webinar
 
@@ -643,15 +645,16 @@ Webinar token не принимается application endpoint автомати�
 
 ```text
 webinar_id: lab-men-funnel-video-fixture
-video_provider: lab
-video_url: null
-status: draft
+video_provider: native-html5
+video_url: /v1/webinar/media/lab-men-funnel-video-fixture
+duration_seconds: 40
+status: active
 ```
 
 Lab URL может выглядеть так:
 
 ```text
-lab://men-funnel/video/lab-men-funnel-video-fixture?t=<webinar_token>
+<WEBINAR_BASE_URL>/lab-men-funnel-video-fixture?t=<webinar_token>
 ```
 
 Это fixture и не доказательство работы реального видеопровайдера.
@@ -675,10 +678,10 @@ Server проверяет:
 
 Telegram button открывает signed URL. На funnel-странице:
 
-- token читается из query только на клиенте;
-- token отправляется на server по HTTPS;
-- server возвращает конфигурацию webinar;
-- клиент показывает lab player или placeholder;
+- token из query проверяется server-side до отдачи player page;
+- server проверяет signature, expiration, `purpose=webinar`, funnel и persistent user;
+- valid token можно использовать повторно до истечения;
+- клиент показывает provider-neutral native player adapter;
 - после CTA server выдаёт application token;
 - application открывается с новым purpose-bound token.
 
@@ -689,17 +692,24 @@ Token не выводится в интерфейсе и не включаетс
 | Событие | Когда фиксируется | Правило |
 |---|---|---|
 | `webinar_page_view` | доступ к webinar page подтверждён | не означает начало просмотра |
-| `webinar_started` | player начал воспроизведение | один раз на context или session |
+| `webinar_started` | server принял первый `play` | один раз на funnel entry |
 | `watched_25` | достигнут порог 25% | фиксируется один раз |
 | `watched_50` | достигнут порог 50% | фиксируется один раз |
 | `watched_75` | достигнут порог 75% | фиксируется один раз |
 | `watched_90` | достигнут порог 90% | фиксируется один раз |
-| `webinar_completed` | player сообщил завершение | не подменяется одним `watched_90` |
+| `watched_100` | server-derived progress достиг 100% | фиксируется один раз |
+| `webinar_completed` | server-derived progress достиг 100% | compatibility event текущей event model |
 | `cta_clicked` | нажата CTA webinar | `placement=webinar` и идентификатор CTA |
 
-Допустимые технические metadata — `video_id`, `placement`, `source_article_slug`, `threshold`. Event на server также связан с `user_id` и `funnel_id`.
+Допустимые технические metadata — `video_id`, `placement`, `threshold`, `watched_seconds`, `progress_percent`. `user_id` и `funnel_id` server берёт только из signed token и persistent user.
 
-Каждое событие получает idempotency key. Повторная отправка возвращает duplicate и не меняет timeline.
+Каждый milestone имеет стабильный idempotency key на user/webinar. Каждый browser request имеет отдельный UUID. Refresh, overlap вкладок и повтор request не дублируют event.
+
+### Server-side progress semantics
+
+Player передаёт только `play`, `heartbeat`, `pause`, `seek`, `ended`, playhead и duration. Server хранит последнюю позицию и server timestamp каждой вкладки. Участок засчитывается, если player был в состоянии play, playhead сдвинулся вперёд и его шаг не превышает server elapsed time с tolerance 2 секунды и gap limit 15 секунд.
+
+`seek` не добавляет watched time и только задаёт новую baseline. `pause` закрывает допустимый участок; heartbeat после pause не возобновляет play. Resume начинается с нового `play`. Общий progress — union уникальных watched ranges всех sessions, поэтому повторный просмотр и две вкладки не завышают результат.
 
 ## F. Follow-up и Telegram automation
 
@@ -711,7 +721,7 @@ Automation реагирует только на события этого funnel
 | webinar available | `webinar_started` отсутствует | 15 минут | первое service reminder |
 | первое reminder | `webinar_started` всё ещё отсутствует | 3 часа от того же базового события sequence | второе service reminder |
 | `webinar_started` | `max_progress < 50`, нет активности | 6 часов | continue watching |
-| `watched_75` или `watched_90` | `application_submitted` отсутствует | 2 часа | follow-up |
+| `watched_75` | `application_submitted` отсутствует | 2 часа | follow-up |
 | `application_submitted` | заявка принята | 0 | отменить pending sales/follow-up |
 | `/stop` | запрос пользователя | 0 | отменить promotional/follow-up |
 | `/delete` | запрос пользователя | 0 | создать deletion request |
@@ -949,7 +959,8 @@ traffic source
 | `watched_50` | `webinar` | достигнут порог 50% |
 | `watched_75` | `webinar` | достигнут порог 75% |
 | `watched_90` | `webinar` | достигнут порог 90% |
-| `webinar_completed` | `webinar` | player сообщил завершение |
+| `watched_100` | `webinar` | server-derived progress достиг 100% |
+| `webinar_completed` | `webinar` | server-derived progress достиг 100% |
 | `cta_clicked` | `webinar` | нажата CTA с `placement=webinar` |
 | `application_started` | `application` | открыта application form |
 | `application_submitted` | `application` | заявка прошла валидацию и сохранена |
@@ -979,7 +990,7 @@ traffic source
 | Telegram Start | `telegram_user_id`, Telegram profile fields, first/funnel entry attribution, timestamps, entry notice/request record |
 | Bonus | bonus ID/version, попытка, sent/failed status, template ID/version, provider message ID после реального подключения |
 | Warming | rule/template IDs, schedule status, message class, delivery result |
-| Webinar | webinar/video IDs, purpose-bound access events, progress thresholds, CTA events |
+| Webinar | webinar/video IDs, purpose-bound access events, first-party player sessions, watched ranges, progress thresholds, CTA events |
 | Application | только на этом этапе: `name`, `situation`, application status и утверждённые consent metadata |
 | CRM view | производный status и timeline с контролем доступа |
 
@@ -1056,7 +1067,7 @@ application without further relationship: 12 months
 - `/stop` и `/delete` request path;
 - configurable retention policy с предварительными dev-значениями;
 - два purpose-bound token: `webinar_token` и `application_token`;
-- lab webinar fixture и viewing events;
+- token-protected lab webinar page, native player adapter, local media fixture и server-derived viewing events;
 - application только с обязательными `name` и `situation`;
 - нейтральное предупреждение о персональных данных третьих лиц;
 - минимальный локальный CRM view с двумя attribution-полями и timeline;

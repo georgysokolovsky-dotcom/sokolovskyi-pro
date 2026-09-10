@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { acceptedWatchSegment, summarizeWebinarProgress } from '../webinar/progress.mjs';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 
@@ -20,6 +21,8 @@ export class MemoryStore {
     this.applicationKeys = new Map();
     this.deletionRequests = new Map();
     this.deliveryOperations = new Map();
+    this.webinarSessions = new Map();
+    this.webinarTelemetryRequests = new Map();
   }
 
   seed({ funnel, sources = [], bonuses = [], messageTemplates = [], automationRules = [], webinar }) {
@@ -57,6 +60,40 @@ export class MemoryStore {
 
   findWebinarForFunnel(funnelId) {
     return clone([...this.webinars.values()].find((item) => item.funnelId === funnelId) ?? null);
+  }
+
+  ingestWebinarTelemetry({ userId, funnelId, webinarId, clientSessionId, requestId, action, positionSeconds, durationSeconds, observedAt, toleranceSeconds, maxGapSeconds }) {
+    const previous = this.webinarTelemetryRequests.get(requestId);
+    if (previous) {
+      if (previous.userId !== userId || previous.clientSessionId !== clientSessionId) return { conflict: true };
+      return { duplicate: true, ...this.webinarProgress(userId, webinarId, durationSeconds) };
+    }
+    const key = `${userId}:${webinarId}:${clientSessionId}`;
+    const session = this.webinarSessions.get(key) ?? {
+      id: randomUUID(), clientSessionId, userId, funnelId, webinarId, durationSeconds,
+      lastPositionSeconds: positionSeconds, lastObservedAt: observedAt, playing: false,
+      startedAt: null, segments: [], createdAt: observedAt, updatedAt: observedAt,
+    };
+    const wasPlaying = session.playing;
+    const segment = acceptedWatchSegment({ session, action, positionSeconds, observedAt, toleranceSeconds, maxGapSeconds });
+    if (segment) session.segments.push(segment);
+    session.lastPositionSeconds = positionSeconds;
+    session.lastObservedAt = observedAt;
+    session.playing = action === 'play' || (action === 'heartbeat' && wasPlaying);
+    if (action === 'play' && !session.startedAt) session.startedAt = observedAt;
+    session.updatedAt = observedAt;
+    this.webinarSessions.set(key, session);
+    this.webinarTelemetryRequests.set(requestId, { requestId, userId, clientSessionId, action, positionSeconds, observedAt });
+    return { duplicate: false, ...this.webinarProgress(userId, webinarId, durationSeconds) };
+  }
+
+  webinarProgress(userId, webinarId, durationSeconds) {
+    const sessions = [...this.webinarSessions.values()].filter((item) => item.userId === userId && item.webinarId === webinarId);
+    return summarizeWebinarProgress({
+      segments: sessions.flatMap((session) => session.segments),
+      durationSeconds,
+      started: sessions.some((session) => session.startedAt),
+    });
   }
 
   listAutomationRules(funnelId) {

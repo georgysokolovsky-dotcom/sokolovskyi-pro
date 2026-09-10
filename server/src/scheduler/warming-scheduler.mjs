@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDeliverySuppressionReason } from '../delivery/recovery-executor.mjs';
 
-const progressEvents = new Set(['watched_50', 'watched_75', 'watched_90', 'webinar_completed']);
+const progressEvents = new Set(['watched_50', 'watched_75', 'watched_90', 'watched_100', 'webinar_completed']);
 const applicationProgressEvents = new Set(['cta_clicked', 'application_started', 'application_submitted']);
 const webinarActivityEvents = new Set(['webinar_started', 'watched_25', ...progressEvents]);
 

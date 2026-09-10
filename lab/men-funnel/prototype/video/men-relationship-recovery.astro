@@ -41,69 +41,12 @@ const breadcrumbItems = [{ label: 'Видеоразбор' }];
 </BaseLayout>
 
 <script define:vars={{ apiOrigin }}>
-  const root = document.querySelector('.video-funnel-page');
-  const status = root?.querySelector('[data-video-status]');
-  const player = root?.querySelector('[data-video-player]');
-  const cta = root?.querySelector('[data-video-cta]');
-  const webinarToken = new URLSearchParams(window.location.search).get('t');
+  const token = new URLSearchParams(window.location.search).get('t');
   const origin = apiOrigin.replace(/\/$/, '');
-
-  const showError = (message) => {
-    if (!status) return;
-    status.innerHTML = `<p class="section-label">Видеоразбор</p><h2>${message}</h2><p>Запроси новую ссылку в Telegram, если срок действия истёк.</p>`;
-  };
-
-  const emit = async (eventType, metadata = {}) => {
-    if (!origin || !webinarToken) throw new Error('funnel_context_missing');
-    const response = await fetch(`${origin}/v1/events`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: webinarToken, eventType, metadata, idempotencyKey: `${eventType}:${webinarToken.slice(-12)}` }),
-      keepalive: true,
-    });
-    if (!response.ok) throw new Error('event_failed');
-    return response.json();
-  };
-
-  const applicationLink = cta?.querySelector('[data-application-link]');
-  applicationLink?.addEventListener('click', async (event) => {
-    event.preventDefault();
-    if (!origin || !webinarToken) return;
-    applicationLink.setAttribute('aria-busy', 'true');
-    try {
-      await emit('cta_clicked', { placement: 'webinar' });
-      const response = await fetch(`${origin}/v1/applications/token`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: webinarToken }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.ok || !payload.url) throw new Error('application_token_failed');
-      window.location.href = payload.url;
-    } catch {
-      applicationLink.removeAttribute('aria-busy');
-      showError('Не удалось открыть форму заявки');
-    }
-  });
-
-  if (!webinarToken) {
-    showError('Нужна персональная ссылка из Telegram');
-  } else if (!origin) {
-    showError('Сервер воронки ещё не подключён');
-  } else {
-    fetch(`${origin}/v1/webinar/session`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: webinarToken }),
-    })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('unauthorized')))
-      .then((payload) => {
-        if (!payload.ok) throw new Error('unauthorized');
-        status?.setAttribute('hidden', '');
-        player?.removeAttribute('hidden');
-        cta?.removeAttribute('hidden');
-        void emit('webinar_page_view', { video_id: payload.webinar?.videoId ?? 'unconfigured' });
-      })
-      .catch(() => showError('Ссылка недействительна или истекла'));
+  const status = document.querySelector('[data-video-status]');
+  if (origin && token) {
+    window.location.replace(`${origin}/webinar/lab-men-funnel-video-fixture?t=${encodeURIComponent(token)}`);
+  } else if (status) {
+    status.innerHTML = '<p class="section-label">Видеоразбор</p><h2>Нужна персональная ссылка из Telegram</h2>';
   }
 </script>

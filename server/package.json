@@ -7,7 +7,7 @@
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
     "test": "node --test",
-    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs tests/warming-scheduler.test.mjs",
+    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs tests/warming-scheduler.test.mjs tests/webinar-progress-postgres.test.mjs",
     "migrate": "node scripts/migrate.mjs",
     "recovery": "node scripts/recovery.mjs",
     "scheduler": "node scripts/scheduler.mjs",

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { acceptedWatchSegment, summarizeWebinarProgress } from '../webinar/progress.mjs';
 
 const { Pool } = pg;
 const iso = (value) => value instanceof Date ? value.toISOString() : value;
@@ -84,8 +85,8 @@ export class PostgresStore {
         on conflict (id) do update set name=excluded.name,role=excluded.role,message_class=excluded.message_class,text=excluded.text,buttons=excluded.buttons,status=excluded.status,version=excluded.version`, [item.id,item.funnelId,item.name,item.role,item.messageClass,item.text,JSON.stringify(item.buttons),item.status,item.version]);
       for (const item of automationRules) await db.query(`insert into automation_rules (id,funnel_id,name,trigger_event,delay_seconds,conditions,action_type,action_config,message_class,status,version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         on conflict (id) do update set name=excluded.name,trigger_event=excluded.trigger_event,delay_seconds=excluded.delay_seconds,conditions=excluded.conditions,action_type=excluded.action_type,action_config=excluded.action_config,message_class=excluded.message_class,status=excluded.status,version=excluded.version`, [item.id,item.funnelId,item.name,item.triggerEvent,item.delaySeconds,JSON.stringify(item.conditions),item.actionType,JSON.stringify(item.actionConfig),item.messageClass,item.status,item.version]);
-      if (webinar) await db.query(`insert into webinars (id,funnel_id,route,video_provider,video_id,video_url,status) values ($1,$2,$3,$4,$5,$6,$7)
-        on conflict (id) do update set route=excluded.route,video_provider=excluded.video_provider,video_id=excluded.video_id,video_url=excluded.video_url,status=excluded.status`, [webinar.id,webinar.funnelId,webinar.route,webinar.videoProvider,webinar.videoId,webinar.videoUrl,webinar.status]);
+      if (webinar) await db.query(`insert into webinars (id,funnel_id,route,video_provider,video_id,video_url,status,duration_seconds) values ($1,$2,$3,$4,$5,$6,$7,$8)
+        on conflict (id) do update set route=excluded.route,video_provider=excluded.video_provider,video_id=excluded.video_id,video_url=excluded.video_url,status=excluded.status,duration_seconds=excluded.duration_seconds`, [webinar.id,webinar.funnelId,webinar.route,webinar.videoProvider,webinar.videoId,webinar.videoUrl,webinar.status,webinar.durationSeconds]);
     });
   }
 
@@ -101,7 +102,44 @@ export class PostgresStore {
   }
   async findWebinarForFunnel(funnelId) {
     const row=(await this.pool.query('select * from webinars where funnel_id=$1 limit 1',[funnelId])).rows[0];
-    return row && { id:row.id,funnelId:row.funnel_id,route:row.route,videoProvider:row.video_provider,videoId:row.video_id,videoUrl:row.video_url,status:row.status };
+    return row && { id:row.id,funnelId:row.funnel_id,route:row.route,videoProvider:row.video_provider,videoId:row.video_id,videoUrl:row.video_url,durationSeconds:Number(row.duration_seconds),status:row.status };
+  }
+
+  async ingestWebinarTelemetry({userId,funnelId,webinarId,clientSessionId,requestId,action,positionSeconds,durationSeconds,observedAt,toleranceSeconds,maxGapSeconds}) {
+    return this.transaction(async(db)=>{
+      await db.query('select id from users where id=$1 for update',[userId]);
+      const duplicate=(await db.query(`select request.*,session.client_session_id from webinar_telemetry_requests request
+        join webinar_view_sessions session on session.id=request.session_id where request.request_id=$1`,[requestId])).rows[0];
+      if (duplicate) {
+        if (duplicate.user_id!==userId || duplicate.client_session_id!==clientSessionId || duplicate.action!==action) return {conflict:true};
+        return {duplicate:true,...await this.webinarProgress(userId,webinarId,durationSeconds,db)};
+      }
+      await db.query(`insert into webinar_view_sessions
+        (id,client_session_id,user_id,funnel_id,webinar_id,duration_seconds,last_position_seconds,last_observed_at)
+        values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (user_id,webinar_id,client_session_id) do nothing`,
+      [randomUUID(),clientSessionId,userId,funnelId,webinarId,durationSeconds,positionSeconds,observedAt]);
+      const row=(await db.query(`select * from webinar_view_sessions
+        where user_id=$1 and webinar_id=$2 and client_session_id=$3 for update`,[userId,webinarId,clientSessionId])).rows[0];
+      const session={playing:row.playing,lastPositionSeconds:Number(row.last_position_seconds),lastObservedAt:row.last_observed_at};
+      const segment=acceptedWatchSegment({session,action,positionSeconds,observedAt,toleranceSeconds,maxGapSeconds});
+      const inserted=(await db.query(`insert into webinar_telemetry_requests
+        (request_id,session_id,user_id,funnel_id,webinar_id,action,position_seconds,segment_start_seconds,segment_end_seconds,received_at)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (request_id) do nothing returning request_id`,
+      [requestId,row.id,userId,funnelId,webinarId,action,positionSeconds,segment?.start??null,segment?.end??null,observedAt])).rowCount;
+      if (!inserted) return {conflict:true};
+      await db.query(`update webinar_view_sessions set last_position_seconds=$2,last_observed_at=$3,
+        playing=$4,started_at=case when $5='play' then coalesce(started_at,$3) else started_at end,updated_at=$3 where id=$1`,
+      [row.id,positionSeconds,observedAt,action==='play'||(action==='heartbeat'&&row.playing),action]);
+      return {duplicate:false,...await this.webinarProgress(userId,webinarId,durationSeconds,db)};
+    });
+  }
+
+  async webinarProgress(userId,webinarId,durationSeconds,db=this.pool) {
+    const rows=(await db.query(`select request.segment_start_seconds,request.segment_end_seconds
+      from webinar_telemetry_requests request where request.user_id=$1 and request.webinar_id=$2
+      and request.segment_start_seconds is not null order by request.segment_start_seconds,request.segment_end_seconds`,[userId,webinarId])).rows;
+    const started=(await db.query('select 1 from webinar_view_sessions where user_id=$1 and webinar_id=$2 and started_at is not null limit 1',[userId,webinarId])).rowCount>0;
+    return summarizeWebinarProgress({segments:rows.map((row)=>({start:Number(row.segment_start_seconds),end:Number(row.segment_end_seconds)})),durationSeconds,started});
   }
   async listAutomationRules(funnelId) {
     const rows=(await this.pool.query("select * from automation_rules where funnel_id=$1 and status='active'",[funnelId])).rows;

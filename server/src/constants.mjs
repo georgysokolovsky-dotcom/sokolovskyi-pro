@@ -34,6 +34,7 @@ export const FUNNEL_EVENTS = Object.freeze([
   'watched_50',
   'watched_75',
   'watched_90',
+  'watched_100',
   'webinar_completed',
   'cta_clicked',
   'application_started',
@@ -72,6 +73,8 @@ export const PUBLIC_EVENT_METADATA_KEYS = Object.freeze([
   'message_class',
   'result_category',
   'cancellation_reason',
+  'watched_seconds',
+  'progress_percent',
 ]);
 
 export const BONUS_DELIVERY_MODES = Object.freeze(['link', 'telegram_audio']);
@@ -83,6 +86,7 @@ export const WEBINAR_EVENTS = Object.freeze([
   'watched_50',
   'watched_75',
   'watched_90',
+  'watched_100',
   'webinar_completed',
   'cta_clicked',
 ]);

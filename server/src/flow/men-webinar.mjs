@@ -11,11 +11,13 @@ import { buildTelegramDeepLink } from '../telegram/deep-links.mjs';
 import { createDevTelegramTransport } from '../telegram/transport.mjs';
 import { createDeliveryRecoveryExecutor } from '../delivery/recovery-executor.mjs';
 import { cancellationReasonForRule, createWarmingScheduler } from '../scheduler/warming-scheduler.mjs';
+import { WEBINAR_PLAYER_ACTIONS } from '../webinar/progress.mjs';
 
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
 const maxNameLength = 200;
 const tokenTtlSeconds = 60 * 60;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const defaultEntryNotice = Object.freeze({
   version: 'men_webinar_v1-entry-notice-1',
   source: 'telegram-start',
@@ -75,7 +77,7 @@ function transitionForEvent(eventType) {
   if (eventType === 'telegram_start') return 'telegram_lead';
   if (['bonus_sent', 'bonus_delivery_failed'].includes(eventType)) return 'warming';
   if (eventType === 'webinar_started') return 'webinar_started';
-  if (['watched_25', 'watched_50', 'watched_75', 'watched_90', 'webinar_completed'].includes(eventType)) return 'webinar_engaged';
+  if (['watched_25', 'watched_50', 'watched_75', 'watched_90', 'watched_100', 'webinar_completed'].includes(eventType)) return 'webinar_engaged';
   if (eventType === 'application_started') return 'application_started';
   if (eventType === 'application_submitted') return 'application_submitted';
   if (eventType === 'telegram_stop') return 'unsubscribed';
@@ -141,12 +143,14 @@ export function createMenWebinarFlow({
   recoveryOptions = {},
   warmingPolicy = { jitterMaxSeconds: 60, maxScheduledPerFunnelEntry: 4, maxPromotionalDelivered: 2, promotionalRollingPeriodSeconds: 7 * 24 * 60 * 60 },
   schedulerOptions = {},
+  now = () => new Date(),
+  playerPolicy = { telemetryToleranceSeconds: 2, maxTelemetryGapSeconds: 15 },
 }) {
   if (!store) throw new Error('store is required');
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
 
   async function resolveToken(token, purpose) {
-    const result = verifyFunnelToken(token, { purpose, secret: signingSecret });
+    const result = verifyFunnelToken(token, { purpose, secret: signingSecret, now: () => now().getTime() });
     if (!result.ok) throw new FunnelError(result.code, 'Invalid or expired funnel token', 401);
     const user = await store.getUser(result.payload.user_ref);
     if (!user || user.funnelId !== result.payload.funnel_id) {
@@ -162,8 +166,9 @@ export function createMenWebinarFlow({
       funnelId: user.funnelId,
       ttlSeconds: tokenTtlSeconds,
       secret: signingSecret,
+      now: () => now().getTime(),
     });
-    const issuedAt = Math.floor(Date.now() / 1000);
+    const issuedAt = Math.floor(now().getTime() / 1000);
     return {
       token,
       purpose,
@@ -178,10 +183,9 @@ export function createMenWebinarFlow({
     const configuredBase = typeof webinarBaseUrl === 'string' && webinarBaseUrl.trim()
       ? webinarBaseUrl.trim().replace(/\/+$/, '')
       : null;
-    const videoReference = webinar?.videoUrl
-      ?? (configuredBase
-        ? `${configuredBase}/${encodeURIComponent(webinar?.videoId ?? 'unconfigured')}`
-        : `lab://men-funnel/video/${encodeURIComponent(webinar?.videoId ?? 'unconfigured')}`);
+    const videoReference = configuredBase
+      ? `${configuredBase}/${encodeURIComponent(webinar?.videoId ?? 'unconfigured')}`
+      : `lab://men-funnel/video/${encodeURIComponent(webinar?.videoId ?? 'unconfigured')}`;
     const separator = videoReference.includes('?') ? '&' : '?';
     return {
       ...token,
@@ -571,12 +575,99 @@ export function createMenWebinarFlow({
   async function createWebinarSession(token) {
     const { user, payload } = await resolveToken(token, 'webinar');
     const webinar = await store.findWebinarForFunnel(user.funnelId);
+    if (!webinar || webinar.status !== 'active') throw new FunnelError('webinar_unavailable', 'Webinar is unavailable', 409);
     return {
       userId: user.id,
       funnelId: payload.funnel_id,
       purpose: payload.purpose,
-      webinar: webinar ? { id: webinar.id, route: webinar.route, videoProvider: webinar.videoProvider, videoId: webinar.videoId, videoUrl: webinar.videoUrl } : null,
+      webinar: webinar ? { id: webinar.id, route: webinar.route, videoProvider: webinar.videoProvider, videoId: webinar.videoId, videoUrl: webinar.videoUrl, durationSeconds: webinar.durationSeconds } : null,
     };
+  }
+
+  function requireRequestId(value, field) {
+    if (typeof value !== 'string' || !uuidPattern.test(value)) throw new FunnelError('invalid_input', `Invalid ${field}`);
+    return value;
+  }
+
+  async function openWebinarPage({ token, videoId }) {
+    const session = await createWebinarSession(token);
+    if (!session.webinar || session.webinar.videoId !== videoId) throw new FunnelError('not_found', 'Webinar not found', 404);
+    await recordUserEvent({
+      userId: session.userId, funnelId: session.funnelId, eventType: 'webinar_page_view',
+      metadata: { video_id: session.webinar.videoId },
+      idempotencyKey: `webinar:${session.userId}:${session.webinar.id}:page-view`,
+    });
+    return session;
+  }
+
+  async function ingestWebinarTelemetry({ token, clientSessionId, requestId, action, positionSeconds, durationSeconds }) {
+    requireRequestId(clientSessionId, 'clientSessionId');
+    requireRequestId(requestId, 'requestId');
+    if (!WEBINAR_PLAYER_ACTIONS.includes(action)) throw new FunnelError('invalid_event', 'Unsupported player action');
+    const position = Number(positionSeconds);
+    const duration = Number(durationSeconds);
+    if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0 || position < 0 || position > duration) {
+      throw new FunnelError('invalid_input', 'Invalid player position');
+    }
+    const { user } = await resolveToken(token, 'webinar');
+    const webinar = await store.findWebinarForFunnel(user.funnelId);
+    if (!webinar || !Number.isFinite(webinar.durationSeconds)) throw new FunnelError('webinar_unavailable', 'Webinar is unavailable', 409);
+    const durationTolerance = Math.max(1, webinar.durationSeconds * 0.02);
+    if (Math.abs(duration - webinar.durationSeconds) > durationTolerance) throw new FunnelError('invalid_input', 'Invalid video duration');
+    const telemetry = await store.ingestWebinarTelemetry({
+      userId: user.id, funnelId: user.funnelId, webinarId: webinar.id,
+      clientSessionId, requestId, action, positionSeconds: position,
+      durationSeconds: webinar.durationSeconds, observedAt: now().toISOString(),
+      toleranceSeconds: playerPolicy.telemetryToleranceSeconds,
+      maxGapSeconds: playerPolicy.maxTelemetryGapSeconds,
+    });
+    if (telemetry.conflict) throw new FunnelError('idempotency_conflict', 'Telemetry request conflicts with an existing request', 409);
+    const recorded = [];
+    if (telemetry.started) {
+      recorded.push(await recordUserEvent({
+        userId: user.id, funnelId: user.funnelId, eventType: 'webinar_started',
+        metadata: { video_id: webinar.videoId },
+        idempotencyKey: `webinar:${user.id}:${webinar.id}:started`,
+      }));
+    }
+    for (const threshold of telemetry.milestones) {
+      const metadata = { video_id: webinar.videoId, threshold, watched_seconds: telemetry.watchedSeconds, progress_percent: telemetry.progressPercent };
+      recorded.push(await recordUserEvent({
+        userId: user.id, funnelId: user.funnelId, eventType: `watched_${threshold}`,
+        metadata, idempotencyKey: `webinar:${user.id}:${webinar.id}:watched-${threshold}`,
+      }));
+      if (threshold === 100) recorded.push(await recordUserEvent({
+        userId: user.id, funnelId: user.funnelId, eventType: 'webinar_completed',
+        metadata, idempotencyKey: `webinar:${user.id}:${webinar.id}:completed`,
+      }));
+    }
+    return {
+      duplicate: telemetry.duplicate,
+      watchedSeconds: telemetry.watchedSeconds,
+      progressPercent: telemetry.progressPercent,
+      milestones: telemetry.milestones,
+      eventsCreated: recorded.filter((item) => !item.duplicate).map((item) => item.event.eventType),
+    };
+  }
+
+  async function recordWebinarCta({ token, requestId }) {
+    requireRequestId(requestId, 'requestId');
+    const { user } = await resolveToken(token, 'webinar');
+    const webinar = await store.findWebinarForFunnel(user.funnelId);
+    return recordUserEvent({
+      userId: user.id, funnelId: user.funnelId, eventType: 'cta_clicked',
+      metadata: { video_id: webinar?.videoId ?? '', placement: 'webinar' },
+      idempotencyKey: `webinar:${user.id}:${webinar?.id ?? 'unknown'}:cta-clicked`,
+    });
+  }
+
+  async function recordApplicationStarted({ token, requestId }) {
+    requireRequestId(requestId, 'requestId');
+    const { user } = await resolveToken(token, 'application');
+    return recordUserEvent({
+      userId: user.id, funnelId: user.funnelId, eventType: 'application_started',
+      metadata: { purpose: 'application' }, idempotencyKey: `application:${user.id}:started`,
+    });
   }
 
   async function recordTokenEvent({ token, eventType, metadata, idempotencyKey }) {
@@ -601,7 +692,9 @@ export function createMenWebinarFlow({
     const { user } = await resolveToken(token, 'application');
     const cleanAnswers = sanitizeAnswers(answers);
     const cleanConsent = assertConsent(consent);
-    const result = await store.createApplicationWithEvent({ userId: user.id, funnelId: user.funnelId, answers: cleanAnswers, consent: cleanConsent, idempotencyKey });
+    if (idempotencyKey != null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 120)) throw new FunnelError('invalid_input', 'Invalid idempotency key');
+    const serverIdempotencyKey = `application:${user.id}:${user.funnelId}`;
+    const result = await store.createApplicationWithEvent({ userId: user.id, funnelId: user.funnelId, answers: cleanAnswers, consent: cleanConsent, idempotencyKey: serverIdempotencyKey });
     if (!result.duplicate) await warmingScheduler.reconcileAfterEvent({ userId: user.id, eventType: 'application_submitted' });
     return { ...result, userId: user.id };
   }
@@ -636,7 +729,7 @@ export function createMenWebinarFlow({
     if (!user) throw new FunnelError('not_found', 'Lead not found', 404);
     const events = await store.listUserEvents(user.id);
     const webinarEvents = events.filter((event) => WEBINAR_EVENTS.includes(event.eventType));
-    const progressEvent = [...['watched_90', 'watched_75', 'watched_50', 'watched_25']]
+    const progressEvent = [...['watched_100', 'watched_90', 'watched_75', 'watched_50', 'watched_25']]
       .map((eventType) => webinarEvents.find((event) => event.eventType === eventType))
       .find(Boolean);
     const bonusEvents = events.filter((event) => ['bonus_delivery_attempted', 'bonus_sent', 'bonus_delivery_failed'].includes(event.eventType));
@@ -688,6 +781,10 @@ export function createMenWebinarFlow({
   return {
     handleTelegramStart,
     createWebinarSession,
+    openWebinarPage,
+    ingestWebinarTelemetry,
+    recordWebinarCta,
+    recordApplicationStarted,
     recordTokenEvent,
     createApplicationToken,
     submitApplication,

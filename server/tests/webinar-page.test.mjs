@@ -1,0 +1,200 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { MemoryStore } from '../src/store/memory-store.mjs';
+import { localFixture } from '../src/data/local-fixture.mjs';
+import { createMenWebinarFlow } from '../src/flow/men-webinar.mjs';
+import { createDevTelegramTransport } from '../src/telegram/transport.mjs';
+import { createApp } from '../src/http/app.mjs';
+import { signFunnelToken } from '../src/security/signed-tokens.mjs';
+
+const signingSecret = 'webinar-page-test-secret';
+
+async function makeServer() {
+  const clock = { value: new Date('2026-09-10T10:00:00.000Z') };
+  const store = new MemoryStore({ now: () => clock.value });
+  store.seed(localFixture);
+  const flow = createMenWebinarFlow({
+    store, signingSecret, botUsername: localFixture.telegramBotUsername,
+    entryNotice: localFixture.entryNotice, webinarBaseUrl: 'http://127.0.0.1/webinar',
+    transport: createDevTelegramTransport(), now: () => clock.value,
+    schedulerOptions: { now: () => clock.value, random: () => 0 },
+    recoveryOptions: { now: () => clock.value },
+  });
+  const app = createApp({ flow, mode: 'local', webhookSecret: 'webhook', adminKey: 'admin' });
+  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
+  return { app, flow, store, clock, baseUrl: `http://127.0.0.1:${app.address().port}` };
+}
+
+async function start(server, telegramUserId) {
+  return server.flow.handleTelegramStart({ telegramUserId, startParameter: 'article_wife_cheating', updateId: telegramUserId, timestamp: server.clock.value.toISOString() });
+}
+
+async function post(server, path, body) {
+  const response = await fetch(`${server.baseUrl}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { response, body: await response.json() };
+}
+
+async function telemetry(server, token, session, action, position, requestId = randomUUID(), extra = {}) {
+  return post(server, '/v1/webinar/telemetry', {
+    token, clientSessionId: session, requestId, action,
+    positionSeconds: position, durationSeconds: 40, ...extra,
+  });
+}
+
+test('signed webinar page validates access without making the token one-time', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_001);
+  const path = `/webinar/lab-men-funnel-video-fixture?t=${encodeURIComponent(started.webinar.token)}`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(`${server.baseUrl}${path}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.match(await response.text(), /data-webinar-root/);
+  }
+  assert.equal((await server.store.listUserEvents(started.userId)).filter((event) => event.eventType === 'webinar_page_view').length, 1);
+  const range = await fetch(`${server.baseUrl}/v1/webinar/media/lab-men-funnel-video-fixture`, { headers: { range: 'bytes=0-99' } });
+  assert.equal(range.status, 206);
+  assert.equal(range.headers.get('content-type'), 'video/mp4');
+  assert.equal((await range.arrayBuffer()).byteLength, 100);
+});
+
+test('expired, invalid and application tokens cannot open webinar or create events', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_002);
+  const baseline = (await server.store.listUserEvents(started.userId)).length;
+  const expired = signFunnelToken({ purpose: 'webinar', userRef: started.userId, funnelId: started.funnelId, ttlSeconds: 60, secret: signingSecret, now: () => server.clock.value.getTime() - 120_000 });
+  const application = signFunnelToken({ purpose: 'application', userRef: started.userId, funnelId: started.funnelId, secret: signingSecret, now: () => server.clock.value.getTime() });
+  const wrongFunnel = signFunnelToken({ purpose: 'webinar', userRef: started.userId, funnelId: 'forged-funnel', secret: signingSecret, now: () => server.clock.value.getTime() });
+  for (const token of [expired, application, wrongFunnel, 'invalid.token']) {
+    const response = await fetch(`${server.baseUrl}/webinar/lab-men-funnel-video-fixture?t=${encodeURIComponent(token)}`);
+    assert.equal(response.status, 401);
+    assert.match(await response.text(), /Ссылка недействительна/);
+  }
+  assert.equal((await server.store.listUserEvents(started.userId)).length, baseline);
+});
+
+test('server derives progress from watched ranges and rejects seek inflation', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_003);
+  const session = randomUUID();
+  await telemetry(server, started.webinar.token, session, 'play', 0);
+  server.clock.value = new Date(server.clock.value.getTime() + 5_000);
+  await telemetry(server, started.webinar.token, session, 'heartbeat', 5);
+  await telemetry(server, started.webinar.token, session, 'seek', 35);
+  await telemetry(server, started.webinar.token, session, 'play', 35);
+  server.clock.value = new Date(server.clock.value.getTime() + 2_000);
+  await telemetry(server, started.webinar.token, session, 'pause', 37);
+  server.clock.value = new Date(server.clock.value.getTime() + 30_000);
+  const paused = await telemetry(server, started.webinar.token, session, 'heartbeat', 39);
+  assert.equal(paused.body.progressPercent, 17.5);
+  await telemetry(server, started.webinar.token, session, 'play', 37);
+  server.clock.value = new Date(server.clock.value.getTime() + 3_000);
+  const completedPosition = await telemetry(server, started.webinar.token, session, 'ended', 40);
+  assert.equal(completedPosition.body.progressPercent, 25);
+  assert.deepEqual(completedPosition.body.milestones, [25]);
+  const types = (await server.store.listUserEvents(started.userId)).map((event) => event.eventType);
+  assert.equal(types.filter((type) => type === 'watched_25').length, 1);
+  assert.equal(types.includes('watched_75'), false);
+  assert.equal(types.includes('watched_100'), false);
+});
+
+test('legitimate playback emits every milestone including watched 100 and completion', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_007);
+  const session = randomUUID();
+  await telemetry(server, started.webinar.token, session, 'play', 0);
+  for (const [position, seconds, action] of [[10, 10, 'heartbeat'], [20, 10, 'heartbeat'], [30, 10, 'heartbeat'], [36, 6, 'heartbeat'], [40, 4, 'ended']]) {
+    server.clock.value = new Date(server.clock.value.getTime() + seconds * 1000);
+    await telemetry(server, started.webinar.token, session, action, position);
+  }
+  const types = (await server.store.listUserEvents(started.userId)).map((event) => event.eventType);
+  for (const type of ['webinar_started', 'watched_25', 'watched_50', 'watched_75', 'watched_90', 'watched_100', 'webinar_completed']) {
+    assert.equal(types.filter((item) => item === type).length, 1);
+  }
+  assert.equal((await server.flow.leadDetails(started.userId)).webinar.maxProgress, 100);
+});
+
+test('duplicate requests, refresh and concurrent tabs create one milestone and no duplicate schedule', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_004);
+  const firstTab = randomUUID();
+  const secondTab = randomUUID();
+  await telemetry(server, started.webinar.token, firstTab, 'play', 0);
+  await telemetry(server, started.webinar.token, secondTab, 'play', 0);
+  server.clock.value = new Date(server.clock.value.getTime() + 10_000);
+  const requestId = randomUUID();
+  const [first, second] = await Promise.all([
+    telemetry(server, started.webinar.token, firstTab, 'heartbeat', 10, requestId),
+    telemetry(server, started.webinar.token, firstTab, 'heartbeat', 10, requestId),
+  ]);
+  assert.deepEqual([first.response.status, second.response.status].sort(), [200, 201]);
+  await telemetry(server, started.webinar.token, secondTab, 'heartbeat', 10);
+  const refreshTab = randomUUID();
+  await telemetry(server, started.webinar.token, refreshTab, 'play', 0);
+  server.clock.value = new Date(server.clock.value.getTime() + 10_000);
+  await telemetry(server, started.webinar.token, refreshTab, 'heartbeat', 10);
+  const events = await server.store.listUserEvents(started.userId);
+  assert.equal(events.filter((event) => event.eventType === 'webinar_started').length, 1);
+  assert.equal(events.filter((event) => event.eventType === 'watched_25').length, 1);
+  assert.equal((await server.store.listDeliveryOperations({ userId: started.userId })).filter((operation) => operation.descriptor?.ruleName === 'continue_watching_6h').length, 1);
+});
+
+test('restricted endpoints reject arbitrary events and ignore forged identity fields', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_005);
+  const generic = await post(server, '/v1/events', { token: started.webinar.token, eventType: 'sold' });
+  assert.equal(generic.response.status, 404);
+  const invalid = await telemetry(server, started.webinar.token, randomUUID(), 'application_submitted', 0);
+  assert.equal(invalid.response.status, 400);
+  assert.equal(invalid.body.error, 'invalid_event');
+  const session = randomUUID();
+  const forged = await telemetry(server, started.webinar.token, session, 'play', 0, randomUUID(), { userId: randomUUID(), funnelId: 'forged' });
+  assert.equal(forged.response.status, 201);
+  const startedEvent = (await server.store.listUserEvents(started.userId)).find((event) => event.eventType === 'webinar_started');
+  assert.equal(startedEvent.userId, started.userId);
+  assert.equal(startedEvent.funnelId, started.funnelId);
+});
+
+test('watched 75 schedules follow-up once; CTA and application use specialized endpoints', async (t) => {
+  const server = await makeServer();
+  t.after(() => server.app.close());
+  const started = await start(server, 51_006);
+  const session = randomUUID();
+  await telemetry(server, started.webinar.token, session, 'play', 0);
+  for (const position of [10, 20, 30]) {
+    server.clock.value = new Date(server.clock.value.getTime() + 10_000);
+    await telemetry(server, started.webinar.token, session, 'heartbeat', position);
+  }
+  let followUps = (await server.store.listDeliveryOperations({ userId: started.userId })).filter((operation) => operation.descriptor?.ruleName === 'application_follow_up_2h');
+  assert.equal(followUps.length, 1);
+  assert.equal(followUps[0].status, 'scheduled');
+  const cta = await post(server, '/v1/webinar/cta', { token: started.webinar.token, requestId: randomUUID() });
+  assert.equal(cta.response.status, 201);
+  followUps = (await server.store.listDeliveryOperations({ userId: started.userId })).filter((operation) => operation.descriptor?.ruleName === 'application_follow_up_2h');
+  assert.equal(followUps[0].status, 'cancelled');
+  const token = await post(server, '/v1/applications/token', { token: started.webinar.token });
+  const applicationStarted = await post(server, '/v1/applications/events', { token: token.body.token, requestId: randomUUID() });
+  assert.equal(applicationStarted.response.status, 201);
+  const application = await post(server, '/v1/applications', {
+    token: token.body.token, idempotencyKey: 'webinar-page-application',
+    answers: { name: 'Тест', situation: 'Проверка', email: 'ignored@example.com' },
+    consent: { accepted: true, policyVersion: 'fixture-1', source: 'webinar-page-test' },
+  });
+  assert.equal(application.response.status, 201);
+  const duplicateApplication = await post(server, '/v1/applications', {
+    token: token.body.token, idempotencyKey: 'different-browser-request',
+    answers: { name: 'Другое', situation: 'Не должно перезаписать первую заявку' },
+    consent: { accepted: true, policyVersion: 'fixture-1', source: 'second-tab' },
+  });
+  assert.equal(duplicateApplication.response.status, 200);
+  assert.equal(duplicateApplication.body.duplicate, true);
+  assert.deepEqual((await server.store.getApplicationForUser(started.userId)).answers, { name: 'Тест', situation: 'Проверка' });
+});

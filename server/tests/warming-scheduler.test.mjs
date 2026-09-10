@@ -6,6 +6,7 @@ import pg from 'pg';
 import { PostgresStore } from '../src/store/postgres-store.mjs';
 import { localFixture } from '../src/data/local-fixture.mjs';
 import { createMenWebinarFlow } from '../src/flow/men-webinar.mjs';
+import { cancellationReasonForRule } from '../src/scheduler/warming-scheduler.mjs';
 import { createDevTelegramTransport, TelegramTransportError } from '../src/telegram/transport.mjs';
 
 const { Pool } = pg;
@@ -60,6 +61,14 @@ integrationTest('PostgreSQL warming scheduler scenarios A-O', async (t) => {
     return flow.handleTelegramStart({ telegramUserId, startParameter: 'article_wife_cheating', updateId, timestamp: clock.value.toISOString() });
   }
   const warmingFor = async (userId) => (await store.listDeliveryOperations({ userId })).filter((item) => item.messageType === 'warming');
+
+  await t.test('watched 75 is sufficient and every application target event cancels follow-up', async () => {
+    const rule = localFixture.automationRules.find((item) => item.name === 'application_follow_up_2h');
+    assert.deepEqual(rule.conditions, { applicationAbsent: true });
+    for (const eventType of ['cta_clicked', 'application_started', 'application_submitted']) {
+      assert.match(cancellationReasonForRule(rule, [{ eventType }]), /^application_/);
+    }
+  });
 
   await t.test('A and B: start schedules once and duplicate update does not duplicate schedule', async () => {
     const sent = [];
