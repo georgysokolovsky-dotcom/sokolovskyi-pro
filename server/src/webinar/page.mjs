@@ -9,6 +9,9 @@ export function renderWebinarPage({ webinar }) {
   const mediaUrl = escapeHtml(webinar.videoUrl);
   const videoProvider = escapeHtml(webinar.videoProvider);
   const duration = Number(webinar.durationSeconds);
+  const hlsClient = webinar.videoProvider === 'mux-hls'
+    ? '  <script src="/v1/webinar/hls.js" defer></script>\n'
+    : '';
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -42,7 +45,7 @@ export function renderWebinarPage({ webinar }) {
       <p class="error" data-error hidden>Не удалось сохранить действие. Обновите страницу и попробуйте ещё раз.</p>
     </section>
   </main>
-  <script src="/v1/webinar/player.js" defer></script>
+${hlsClient}  <script src="/v1/webinar/player.js" defer></script>
 </body>
 </html>`;
 }

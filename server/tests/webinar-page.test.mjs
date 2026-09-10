@@ -26,6 +26,21 @@ async function makeServer() {
   return { app, flow, store, clock, baseUrl: `http://127.0.0.1:${app.address().port}` };
 }
 
+async function makeServerWithPlaybackProvider(playbackSourceProvider) {
+  const server = await makeServer();
+  await new Promise((resolve) => server.app.close(resolve));
+  const flow = createMenWebinarFlow({
+    store: server.store, signingSecret, botUsername: localFixture.telegramBotUsername,
+    entryNotice: localFixture.entryNotice, webinarBaseUrl: 'http://127.0.0.1/webinar',
+    transport: createDevTelegramTransport(), now: () => server.clock.value,
+    schedulerOptions: { now: () => server.clock.value, random: () => 0 },
+    recoveryOptions: { now: () => server.clock.value }, playbackSourceProvider,
+  });
+  const app = createApp({ flow, mode: 'local', webhookSecret: 'webhook', adminKey: 'admin' });
+  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
+  return { ...server, app, flow, baseUrl: `http://127.0.0.1:${app.address().port}` };
+}
+
 async function start(server, telegramUserId) {
   return server.flow.handleTelegramStart({ telegramUserId, startParameter: 'article_wife_cheating', updateId: telegramUserId, timestamp: server.clock.value.toISOString() });
 }
@@ -69,6 +84,37 @@ test('signed webinar page validates access without making the token one-time', a
   assert.equal(range.headers.get('referrer-policy'), 'no-referrer');
   assert.equal(range.headers.get('access-control-allow-origin'), null);
   assert.equal((await range.arrayBuffer()).byteLength, 100);
+});
+
+test('Mux playback source is issued only after MEN webinar authorization', async (t) => {
+  let issueCount = 0;
+  const playbackSourceProvider = {
+    createPlaybackSource() {
+      issueCount += 1;
+      return { videoProvider: 'mux-hls', videoUrl: 'https://stream.mux.com/TestPlayback123.m3u8?token=temporary-jwt' };
+    },
+  };
+  const server = await makeServerWithPlaybackProvider(playbackSourceProvider);
+  t.after(() => server.app.close());
+  const started = await start(server, 51_009);
+  const application = signFunnelToken({ purpose: 'application', userRef: started.userId, funnelId: started.funnelId, secret: signingSecret, now: () => server.clock.value.getTime() });
+  const expired = signFunnelToken({ purpose: 'webinar', userRef: started.userId, funnelId: started.funnelId, ttlSeconds: 60, secret: signingSecret, now: () => server.clock.value.getTime() - 120_000 });
+  for (const token of [application, expired]) {
+    const response = await fetch(`${server.baseUrl}/webinar/${localFixture.webinar.videoId}?t=${encodeURIComponent(token)}`);
+    assert.equal(response.status, 401);
+  }
+  assert.equal(issueCount, 0);
+  const response = await fetch(`${server.baseUrl}/webinar/${localFixture.webinar.videoId}?t=${encodeURIComponent(started.webinar.token)}`);
+  assert.equal(response.status, 200);
+  assert.equal(issueCount, 1);
+  assert.match(response.headers.get('content-security-policy'), /https:\/\/stream\.mux\.com/);
+  const html = await response.text();
+  assert.match(html, /data-video-provider="mux-hls"/);
+  assert.match(html, /\/v1\/webinar\/hls\.js/);
+  assert.equal(html.includes('private-key'), false);
+  const hls = await fetch(`${server.baseUrl}/v1/webinar/hls.js`);
+  assert.equal(hls.status, 200);
+  assert.match(hls.headers.get('content-type'), /text\/javascript/);
 });
 
 test('media source requires a short-lived video-bound media token and handles ranges', async (t) => {

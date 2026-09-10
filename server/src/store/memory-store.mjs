@@ -83,16 +83,20 @@ export class MemoryStore {
     if (action === 'play' && !session.startedAt) session.startedAt = observedAt;
     session.updatedAt = observedAt;
     this.webinarSessions.set(key, session);
-    this.webinarTelemetryRequests.set(requestId, { requestId, userId, clientSessionId, action, positionSeconds, observedAt });
+    this.webinarTelemetryRequests.set(requestId, { requestId, userId, webinarId, clientSessionId, action, positionSeconds, observedAt, segment });
     return { duplicate: false, ...this.webinarProgress(userId, webinarId, durationSeconds) };
   }
 
   webinarProgress(userId, webinarId, durationSeconds) {
     const sessions = [...this.webinarSessions.values()].filter((item) => item.userId === userId && item.webinarId === webinarId);
+    const endedNearFinish = [...this.webinarTelemetryRequests.values()].some((request) => request.userId === userId
+      && request.webinarId === webinarId && request.action === 'ended' && request.segment
+      && request.positionSeconds >= durationSeconds - 0.5);
     return summarizeWebinarProgress({
       segments: sessions.flatMap((session) => session.segments),
       durationSeconds,
       started: sessions.some((session) => session.startedAt),
+      endedNearFinish,
     });
   }
 

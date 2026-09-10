@@ -114,11 +114,14 @@ test.describe.serial('protected webinar browser flow', () => {
     await page.locator('video').evaluate((video) => video.play());
 
     await expect.poll(() => eventTypes(started.userId)).toContain('webinar_started');
-    const reminders = (await store.listDeliveryOperations({ userId: started.userId }))
+    const getReminders = async () => (await store.listDeliveryOperations({ userId: started.userId }))
       .filter((operation) => operation.descriptor?.ruleName?.startsWith('webinar_reminder_'));
+    await expect.poll(async () => (await getReminders()).map((operation) => operation.status)).toEqual(['cancelled', 'cancelled']);
+    const reminders = await getReminders();
     expect(reminders.map((operation) => operation.status)).toEqual(['cancelled', 'cancelled']);
 
     await expect.poll(() => eventTypes(started.userId)).toContain('watched_25');
+    await expect.poll(() => operationByRule(started.userId, 'continue_watching_6h')).toMatchObject({ status: 'scheduled' });
     const continueWatching = await operationByRule(started.userId, 'continue_watching_6h');
     expect(continueWatching.status).toBe('scheduled');
     const originalContinueTime = continueWatching.earliestExecutionAt;
@@ -128,8 +131,9 @@ test.describe.serial('protected webinar browser flow', () => {
       .toBeGreaterThan(new Date(originalContinueTime).getTime());
 
     await expect.poll(() => eventTypes(started.userId)).toContain('watched_50');
-    expect((await store.getDeliveryOperation(continueWatching.id)).status).toBe('cancelled');
+    await expect.poll(async () => (await store.getDeliveryOperation(continueWatching.id)).status).toBe('cancelled');
     await expect.poll(() => eventTypes(started.userId)).toContain('watched_75');
+    await expect.poll(() => operationByRule(started.userId, 'application_follow_up_2h')).toMatchObject({ status: 'scheduled' });
     const followUp = await operationByRule(started.userId, 'application_follow_up_2h');
     expect(followUp.status).toBe('scheduled');
     await expect.poll(() => eventTypes(started.userId)).toContain('webinar_completed');

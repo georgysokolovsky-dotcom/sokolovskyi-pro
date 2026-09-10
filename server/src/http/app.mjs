@@ -6,6 +6,7 @@ import { createLocalFixtureMediaSource } from '../webinar/local-media-source.mjs
 
 const maxBodyBytes = 64 * 1024;
 const playerClient = readFileSync(new URL('../webinar/player-client.js', import.meta.url));
+const hlsClient = readFileSync(new URL(import.meta.resolve('hls.js/dist/hls.min.js')));
 
 async function readJson(request) {
   const chunks = [];
@@ -33,14 +34,17 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-function sendWebinarDocument(response, status, body) {
+function sendWebinarDocument(response, status, body, { allowMux = false } = {}) {
+  const muxConnect = allowMux ? ' https://stream.mux.com https://*.mux.com' : '';
+  const muxMedia = allowMux ? ' blob: https://stream.mux.com https://*.mux.com' : '';
+  const workerSource = allowMux ? "worker-src 'self' blob:; " : '';
   response.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
     'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff',
     'x-frame-options': 'DENY',
-    'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    'content-security-policy': `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src 'self'${muxMedia}; connect-src 'self'${muxConnect}; ${workerSource}img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
   });
   response.end(body);
 }
@@ -72,6 +76,11 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
         return response.end(playerClient);
       }
 
+      if (method === 'GET' && url.pathname === '/v1/webinar/hls.js') {
+        response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff' });
+        return response.end(hlsClient);
+      }
+
       const mediaMatch = url.pathname.match(/^\/v1\/webinar\/media\/([a-z0-9_-]{1,120})$/i);
       if (['GET', 'HEAD'].includes(method) && mediaMatch) {
         const authorization = await flow.authorizeWebinarMedia({ token: url.searchParams.get('mt'), videoId: mediaMatch[1] });
@@ -83,7 +92,7 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
       if (method === 'GET' && webinarPageMatch) {
         try {
           const session = await flow.openWebinarPage({ token: url.searchParams.get('t'), videoId: webinarPageMatch[1] });
-          return sendWebinarDocument(response, 200, renderWebinarPage(session));
+          return sendWebinarDocument(response, 200, renderWebinarPage(session), { allowMux: session.webinar.videoProvider === 'mux-hls' });
         } catch (error) {
           const status = error instanceof FunnelError ? error.status : 500;
           return sendWebinarDocument(response, status, renderWebinarDeniedPage());

@@ -12,6 +12,7 @@ import { createDevTelegramTransport } from '../telegram/transport.mjs';
 import { createDeliveryRecoveryExecutor } from '../delivery/recovery-executor.mjs';
 import { cancellationReasonForRule, createWarmingScheduler } from '../scheduler/warming-scheduler.mjs';
 import { WEBINAR_PLAYER_ACTIONS } from '../webinar/progress.mjs';
+import { createLocalPlaybackSourceProvider } from '../webinar/providers/local-playback-source.mjs';
 
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
@@ -147,9 +148,11 @@ export function createMenWebinarFlow({
   schedulerOptions = {},
   now = () => new Date(),
   playerPolicy = { telemetryToleranceSeconds: 2, maxTelemetryGapSeconds: 15 },
+  playbackSourceProvider = createLocalPlaybackSourceProvider(),
 }) {
   if (!store) throw new Error('store is required');
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
+  if (!playbackSourceProvider || typeof playbackSourceProvider.createPlaybackSource !== 'function') throw new Error('playbackSourceProvider.createPlaybackSource is required');
 
   async function resolveToken(token, purpose) {
     const result = verifyFunnelToken(token, { purpose, secret: signingSecret, now: () => now().getTime() });
@@ -603,18 +606,20 @@ export function createMenWebinarFlow({
   async function openWebinarPage({ token, videoId }) {
     const session = await createWebinarSession(token);
     if (!session.webinar || session.webinar.videoId !== videoId) throw new FunnelError('not_found', 'Webinar not found', 404);
+    const user = await store.getUser(session.userId);
+    const playback = await playbackSourceProvider.createPlaybackSource({ user, webinar: session.webinar, issueMediaToken });
     await recordUserEvent({
       userId: session.userId, funnelId: session.funnelId, eventType: 'webinar_page_view',
       metadata: { video_id: session.webinar.videoId },
       idempotencyKey: `webinar:${session.userId}:${session.webinar.id}:page-view`,
     });
-    const user = await store.getUser(session.userId);
-    const media = issueMediaToken(user, session.webinar);
     return {
       ...session,
       webinar: {
         ...session.webinar,
-        videoUrl: `/v1/webinar/media/${encodeURIComponent(session.webinar.videoId)}?mt=${encodeURIComponent(media.token)}`,
+        videoProvider: playback.videoProvider,
+        videoUrl: playback.videoUrl,
+        playbackExpiresAt: playback.playbackExpiresAt,
       },
     };
   }

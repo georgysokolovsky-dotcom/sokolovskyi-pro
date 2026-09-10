@@ -49,7 +49,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `lab/men-funnel/prototype/apply/men.astro` — lab-экран application;
 - `server/src/data/local-fixture.mjs` — локальная конфигурация funnel, bonus, message templates и webinar;
 - `server/src/flow/men-webinar.mjs` — Telegram Start, выдача bonus, signed video token, события и application;
-- `server/src/webinar/` — token-protected page, native player adapter, progress semantics и local media fixture;
+- `server/src/webinar/` — token-protected page, native/HLS.js adapters, local media fixture и Mux signed-playback provider;
 - `server/src/security/signed-tokens.mjs` — текущий HMAC token с TTL 1 час;
 - `server/src/store/memory-store.mjs` — in-memory хранилище для lab;
 - `server/src/store/postgres-store.mjs` — persistent implementation того же store contract;
@@ -60,7 +60,7 @@ Traffic Source → optional Article → Funnel → Telegram flow → Bonus → W
 - `server/migrations/005_webinar_progress.sql` — first-party player sessions, idempotent telemetry requests и watched ranges;
 - `server/tests/vertical-slice.test.mjs` — проверка пути от Telegram Start до application.
 
-В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Вместо реального видеоматериала подключён local media fixture.
+В server реализован Telegram Bot API-compatible transport с внедряемыми `fetch`, base URL и timeout. По умолчанию server использует dev/mock transport без сети. Настоящий bot token и production webhook не подключены; webhook secret и signing secret в репозитории не хранятся. Для обычных тестов подключён local media fixture; отдельный opt-in staging test использует signed Mux asset.
 
 ### Конфигурация первой версии
 
@@ -712,9 +712,17 @@ Webinar page не получает публичный MP4 URL. После вал
 
 Local MP4 читается через file stream, а не копируется целиком в память на каждый request. Поддержаны `200`, `HEAD`, одиночные byte ranges, `206`, suffix/open-ended range и `416`. Ответы имеют точные `Content-Length`/`Content-Range`, `Accept-Ranges: bytes`, MIME `video/mp4`, private cache, `Referrer-Policy: no-referrer` и `X-Content-Type-Options: nosniff`. Page, media, telemetry и CTA работают same-origin; wildcard CORS для webinar surface не используется.
 
+### Mux signed playback
+
+`WEBINAR_MEDIA_PROVIDER=local|mux` задаёт server-side provider; `local` — default. Mux mode без signing key ID, private key или signed Playback ID не запускается. Private key принимается как raw PEM, PEM с escaped newline или base64 PEM и существует только в памяти процесса.
+
+После проверки MEN `webinar_token` provider создаёт RS256 JWT. Header содержит `alg=RS256` и `kid`; payload содержит только `sub=<MUX_PLAYBACK_ID>`, `aud=v`, `exp`. HLS URL имеет вид `https://stream.mux.com/{PLAYBACK_ID}.m3u8?token={JWT}`. Application/expired/wrong-purpose MEN token не запускает выдачу Mux JWT. Refresh страницы может получить новый playback JWT, но не создаёт повторный `webinar_page_view`.
+
+Срок Mux JWT равен большему из configured TTL и webinar duration плюс safety buffer. Signing key, environment values и полный signed URL не логируются и не сохраняются в PostgreSQL. Mux API token не используется: asset lifecycle, upload и webhook находятся вне этого slice.
+
 ### Video provider adapter boundary
 
-Browser adapter должен:
+Native и HLS.js browser adapters:
 
 - получить только разрешённый playback source от server;
 - создать native или provider player;
@@ -722,7 +730,7 @@ Browser adapter должен:
 - отдавать currentTime, duration, paused и ended;
 - не создавать funnel milestones самостоятельно.
 
-Будущий server adapter отвечает за разрешённый playback source и provider access. Server-side progress engine не зависит от provider: он принимает ограниченную telemetry, объединяет watched ranges в PostgreSQL и сам создаёт milestones.
+Server provider отвечает только за разрешённый playback source и provider access. Server-side progress engine не зависит от provider: он принимает ограниченную telemetry, объединяет watched ranges в PostgreSQL и сам создаёт milestones. HLS.js поставляется same-origin; Mux Player, Mux Data и внешняя analytics не подключены. CSP разрешает Mux Video delivery origins без широкого `https:` wildcard.
 
 ### Webinar events
 
@@ -748,11 +756,15 @@ Player передаёт только `play`, `heartbeat`, `pause`, `seek`, `ende
 
 `seek` не добавляет watched time и только задаёт новую baseline. `pause` закрывает допустимый участок; heartbeat после pause не возобновляет play. Resume начинается с нового `play`. Общий progress — union уникальных watched ranges всех sessions, поэтому повторный просмотр и две вкладки не завышают результат.
 
+Для HLS событие `play` иногда приходит после первых долей секунды. Поэтому подтверждённый `ended` нормализует progress до 100% только при трёх server-side условиях: последний участок принят как допустимый, playhead находится в пределах 0,5 секунды от configured duration, а union watched ranges уже покрывает минимум 95%. Seek к концу без почти полного просмотра не создаёт `watched_100`.
+
 ### Browser E2E
 
 Отдельный Playwright test запускает установленный Google Chrome, MEN server с fake Telegram transport и уникальную PostgreSQL schema. В настоящем HTML5 player он проверяет загрузку защищённого MP4, полный просмотр до completion, Range responses, refresh, две вкладки, seek protection, scheduler transitions, CTA, application token и переход в application flow. Негативный browser-сценарий проверяет отсутствие/expiry/wrong purpose webinar token и отсутствие/expiry/wrong purpose/wrong video/wrong funnel media token. Критический E2E не skipped и не обращается к analytics или Telegram.
 
 Тот же сценарий допускает временный HTTPS-origin через Cloudflare Quick Tunnel. URL передаётся только process environment, не записывается в repository и удаляется остановкой tunnel. Permanent tunnel, DNS record и Cloudflare zone configuration не создаются.
+
+Отдельный `test:mux-staging` использует ignored environment, реальный signed staging asset, PostgreSQL и Google Chrome. Он подтверждает HLS playback, server-derived milestones, persistence/restart, CTA/application и отрицательные Mux JWT cases. Обычные unit/PostgreSQL/local browser suites не обращаются к Mux или интернету.
 
 ## F. Follow-up и Telegram automation
 

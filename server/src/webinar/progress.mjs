@@ -20,9 +20,13 @@ export function mergeWatchedSeconds(segments, durationSeconds) {
   return Math.min(durationSeconds, watched);
 }
 
-export function summarizeWebinarProgress({ segments, durationSeconds, started }) {
-  const watchedSeconds = mergeWatchedSeconds(segments, durationSeconds);
-  const progressPercent = durationSeconds > 0 ? Math.min(100, (watchedSeconds / durationSeconds) * 100) : 0;
+export function summarizeWebinarProgress({ segments, durationSeconds, started, endedNearFinish = false }) {
+  let watchedSeconds = mergeWatchedSeconds(segments, durationSeconds);
+  let progressPercent = durationSeconds > 0 ? Math.min(100, (watchedSeconds / durationSeconds) * 100) : 0;
+  if (endedNearFinish && progressPercent >= 95) {
+    watchedSeconds = durationSeconds;
+    progressPercent = 100;
+  }
   return {
     started: Boolean(started),
     watchedSeconds,

@@ -16,7 +16,25 @@ test('local runtime keeps memory and dev transport as safe defaults', () => {
   assert.equal(config.mode, 'local');
   assert.equal(config.storeMode, 'memory');
   assert.equal(config.telegramTransportMode, 'dev');
+  assert.equal(config.webinarMediaProvider, 'local');
   assert.equal(config.host, '127.0.0.1');
+});
+
+test('Mux media is opt-in and fails closed without all signing inputs', () => {
+  assert.throws(() => loadRuntimeConfig({ ...secrets, WEBINAR_MEDIA_PROVIDER: 'mux' }), /MUX_SIGNING_KEY_ID/);
+  const config = loadRuntimeConfig({
+    ...secrets,
+    WEBINAR_MEDIA_PROVIDER: 'mux',
+    MUX_SIGNING_KEY_ID: 'key-id',
+    MUX_SIGNING_PRIVATE_KEY: 'private-key-placeholder',
+    MUX_PLAYBACK_ID: 'Playback123',
+    MUX_PLAYBACK_TOKEN_TTL_SECONDS: '7200',
+    MUX_PLAYBACK_BUFFER_SECONDS: '900',
+  });
+  assert.equal(config.webinarMediaProvider, 'mux');
+  assert.equal(config.muxPlaybackTokenTtlSeconds, 7200);
+  assert.equal(config.muxPlaybackBufferSeconds, 900);
+  assert.throws(() => loadRuntimeConfig({ ...secrets, WEBINAR_MEDIA_PROVIDER: 'external' }), /local or mux/);
 });
 
 test('staging fails closed unless PostgreSQL, official Bot API and HTTPS URLs are explicit', () => {

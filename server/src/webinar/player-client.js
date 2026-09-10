@@ -18,7 +18,37 @@
     };
   }
 
-  const adapter = createNativePlayerAdapter(player, root.dataset.playbackSource);
+  function createHlsPlayerAdapter(element, playbackSource) {
+    if (globalThis.Hls?.isSupported()) {
+      const hls = new globalThis.Hls({ enableWorker: true });
+      hls.on(globalThis.Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) error.hidden = false;
+      });
+      hls.loadSource(playbackSource);
+      hls.attachMedia(element);
+    } else if (element.canPlayType('application/vnd.apple.mpegurl')) {
+      element.src = playbackSource;
+    } else {
+      throw new Error('hls_unsupported');
+    }
+    return {
+      on: (event, listener) => element.addEventListener(event, listener),
+      currentTime: () => Number(element.currentTime),
+      duration: () => Number(element.duration || root.dataset.duration),
+      paused: () => element.paused,
+      ended: () => element.ended,
+    };
+  }
+
+  let adapter;
+  try {
+    adapter = root.dataset.videoProvider === 'mux-hls'
+      ? createHlsPlayerAdapter(player, root.dataset.playbackSource)
+      : createNativePlayerAdapter(player, root.dataset.playbackSource);
+  } catch {
+    error.hidden = false;
+    return;
+  }
 
   const clientSessionId = crypto.randomUUID();
   let queue = Promise.resolve();

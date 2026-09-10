@@ -135,11 +135,12 @@ export class PostgresStore {
   }
 
   async webinarProgress(userId,webinarId,durationSeconds,db=this.pool) {
-    const rows=(await db.query(`select request.segment_start_seconds,request.segment_end_seconds
+    const rows=(await db.query(`select request.action,request.position_seconds,request.segment_start_seconds,request.segment_end_seconds
       from webinar_telemetry_requests request where request.user_id=$1 and request.webinar_id=$2
       and request.segment_start_seconds is not null order by request.segment_start_seconds,request.segment_end_seconds`,[userId,webinarId])).rows;
     const started=(await db.query('select 1 from webinar_view_sessions where user_id=$1 and webinar_id=$2 and started_at is not null limit 1',[userId,webinarId])).rowCount>0;
-    return summarizeWebinarProgress({segments:rows.map((row)=>({start:Number(row.segment_start_seconds),end:Number(row.segment_end_seconds)})),durationSeconds,started});
+    const endedNearFinish=rows.some((row)=>row.action==='ended'&&row.segment_start_seconds!=null&&Number(row.position_seconds)>=durationSeconds-0.5);
+    return summarizeWebinarProgress({segments:rows.map((row)=>({start:Number(row.segment_start_seconds),end:Number(row.segment_end_seconds)})),durationSeconds,started,endedNearFinish});
   }
   async listAutomationRules(funnelId) {
     const rows=(await this.pool.query("select * from automation_rules where funnel_id=$1 and status='active'",[funnelId])).rows;

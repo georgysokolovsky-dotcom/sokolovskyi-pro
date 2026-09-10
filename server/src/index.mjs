@@ -7,6 +7,8 @@ import { createDevTelegramTransport } from './telegram/transport.mjs';
 import { createTelegramBotApiTransport } from './telegram/bot-api-transport.mjs';
 import { getTelegramBotIdentity } from './telegram/bot-api-admin.mjs';
 import { loadRuntimeConfig } from './config/runtime-config.mjs';
+import { createLocalPlaybackSourceProvider } from './webinar/providers/local-playback-source.mjs';
+import { createMuxMediaSource } from './webinar/providers/mux-media-source.mjs';
 
 const config = loadRuntimeConfig();
 let transport;
@@ -29,6 +31,16 @@ if (config.storeMode === 'memory') {
 }
 await store.seed(localFixture);
 
+const playbackSourceProvider = config.webinarMediaProvider === 'mux'
+  ? createMuxMediaSource({
+      keyId: config.muxSigningKeyId,
+      privateKey: config.muxSigningPrivateKey,
+      playbackId: config.muxPlaybackId,
+      tokenTtlSeconds: config.muxPlaybackTokenTtlSeconds,
+      playbackBufferSeconds: config.muxPlaybackBufferSeconds,
+    })
+  : createLocalPlaybackSourceProvider();
+
 if (config.mode === 'staging') {
   const identity = await getTelegramBotIdentity({
     fetchImpl: globalThis.fetch,
@@ -49,6 +61,7 @@ const flow = createMenWebinarFlow({
   entryNotice: localFixture.entryNotice,
   webinarBaseUrl: config.webinarBaseUrl,
   transport,
+  playbackSourceProvider,
 });
 const app = createApp({ flow, mode: config.mode, webhookSecret: config.webhookSecret, adminKey: config.adminSecret });
 

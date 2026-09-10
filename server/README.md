@@ -12,8 +12,7 @@ Telegram /start
   → purpose-bound webinar token
   → webinar invite с подписанной URL
   → token-protected webinar page
-  → short-lived video-bound media token
-  → protected MP4 Range streaming
+  → local media token + MP4 Range streaming или server-signed Mux HLS
   → server-derived progress milestones
   → CTA → application token
   → persistent warming schedule
@@ -58,15 +57,17 @@ Runner применяет только ещё не записанные SQL-фа
 
 Server отдаёт изолированную page по адресу `/webinar/:videoId?t=<webinar_token>`. До валидации signature, expiration, `purpose=webinar`, funnel и user страница не создаёт tracking-записей. Refresh не погашает действующий token.
 
-После успешной проверки страницы server выпускает отдельный HMAC token с `purpose=media`. Он привязан к internal user, funnel и конкретному `video_id`, не сохраняется в PostgreSQL и живёт не меньше 15 минут или configured video duration плюс 10 минут — берётся большее значение. Webinar и application token media endpoint не принимает.
+`WEBINAR_MEDIA_PROVIDER=local` остаётся безопасным default. После успешной проверки страницы local provider выпускает отдельный HMAC token с `purpose=media`. Он привязан к internal user, funnel и конкретному `video_id`, не сохраняется в PostgreSQL и живёт не меньше 15 минут или configured video duration плюс 10 минут — берётся большее значение. Webinar и application token media endpoint не принимает.
 
 Local fixture выдаётся по `/v1/webinar/media/:videoId?mt=<media_token>`. Endpoint повторно проверяет signature, expiry, purpose, user, funnel, video и active webinar. MP4 читается потоком с диска: поддерживаются полный `200`, одиночные `Range: bytes=...`, `206`, suffix/open-ended ranges, `Content-Range`, `Accept-Ranges`, точный `Content-Length`, `HEAD` и `416`. Filesystem path не раскрывается. Ответ использует `video/mp4`, private cache, `no-referrer`, `nosniff` и same-origin без wildcard CORS.
 
-Native player adapter получает разрешённый playback source из server-rendered page и предоставляет узкий интерфейс: подписка на play/pause/timeupdate/seeked/ended, чтение currentTime, duration, paused и ended. Он отправляет только `play`, `heartbeat`, `pause`, `seek`, `ended` в `/v1/webinar/telemetry`. Browser не выбирает funnel event, `user_id` или `funnel_id`. Server принимает только участки, где playhead двигался вперёд не быстрее server elapsed time с малым tolerance. Seek только меняет baseline.
+`WEBINAR_MEDIA_PROVIDER=mux` включается только явно и требует `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_PRIVATE_KEY` и `MUX_PLAYBACK_ID`. Server принимает raw PEM, PEM с escaped newlines или base64-encoded PEM, нормализует private key только в памяти и создаёт RS256 JWT с `kid`, `sub=<playback_id>`, `aud=v`, `exp`. Browser получает только временный signed HLS URL; private key и environment configuration в HTML/API не передаются. Effective TTL равен большему из `MUX_PLAYBACK_TOKEN_TTL_SECONDS` и configured video duration плюс `MUX_PLAYBACK_BUFFER_SECONDS`.
 
-Будущий provider adapter должен получить server-authorized playback source, создать provider player и реализовать тот же интерфейс событий/состояния. Provider-specific playback не определяет funnel milestones: PostgreSQL watched ranges и MEN server остаются источником истины.
+Player boundary поддерживает native HTML5 и HLS.js. HLS.js отдаётся самим MEN server из установленного package, а не с CDN; Mux Player и Mux Data SDK не подключены. Оба adapters предоставляют один интерфейс: play/pause/timeupdate/seeked/ended, currentTime, duration, paused и ended. Browser отправляет только `play`, `heartbeat`, `pause`, `seek`, `ended` в `/v1/webinar/telemetry`. Он не выбирает funnel event, `user_id` или `funnel_id`. Server принимает только участки, где playhead двигался вперёд не быстрее server elapsed time с малым tolerance. Seek только меняет baseline.
 
-Прогресс — длина объединения уникальных просмотренных диапазонов из всех вкладок, делённая на configured duration. Повтор, overlap и refresh не увеличивают его дважды. Server создаёт один раз `webinar_started`, `watched_25/50/75/90/100` и `webinar_completed`.
+Provider-specific playback не определяет funnel milestones: PostgreSQL watched ranges и MEN server остаются источником истины. CSP валидной Mux page разрешает только same-origin и scoped Mux Video origins (`stream.mux.com`/`*.mux.com`) для HLS; внешние analytics origins не разрешены.
+
+Прогресс — длина объединения уникальных просмотренных диапазонов из всех вкладок, делённая на configured duration. Повтор, overlap и refresh не увеличивают его дважды. Для коротких HLS-потоков `ended` закрывает технический startup gap и даёт 100% только когда server принял последний непрерывный участок, playhead находится не дальше 0,5 секунды от конца и union уже покрывает минимум 95%. Одна перемотка к концу этого условия не выполняет. Server создаёт один раз `webinar_started`, `watched_25/50/75/90/100` и `webinar_completed`.
 
 CTA имеет отдельный `/v1/webinar/cta`; application start — `/v1/applications/events`. Общий browser endpoint для произвольных funnel events отсутствует.
 
@@ -149,6 +150,8 @@ npm run start:funnel
 - `TELEGRAM_EXPECTED_BOT_USERNAME`;
 - `WEBINAR_BASE_URL`.
 
+Для Mux staging дополнительно задать `WEBINAR_MEDIA_PROVIDER=mux` и три Mux-переменные из `.env.staging.local`. API access token не нужен: этот slice не создаёт и не меняет assets. Файл `.env.staging.local` игнорируется Git и не должен копироваться в команды, логи или документацию.
+
 Рекомендуемый порядок отдельного staging-прогона:
 
 1. Применить migration командой `npm --prefix server run migrate` к отдельной staging database.
@@ -178,6 +181,14 @@ npm --prefix server run test:browser
 
 Он требует `FUNNEL_TEST_DATABASE_URL`, создаёт и удаляет отдельную PostgreSQL schema, запускает MEN server с fake transport и воспроизводит 40-секундный fixture в реальном HTML5 player. Проверяются media authorization/Range, milestones, refresh, две вкладки, seek protection, scheduler, CTA и application transition. Артефакты Playwright пишутся только в `/tmp`, критические browser tests не skipped.
 
+Реальная Mux-проверка отделена от обычного suite и запускается только явно:
+
+```bash
+npm --prefix server run test:mux-staging
+```
+
+Команда читает ignored `.env.staging.local`, требует test PostgreSQL URL и три Mux signing variables, создаёт временную schema и запускает настоящий Chrome. Она проверяет signed HLS, полный просмотр короткого staging asset, milestones, restart, CTA/application, отсутствие Mux Data/сторонних analytics и отказы без JWT, с wrong `sub`, wrong `aud` и expired JWT. Для HTTPS Quick Tunnel можно передать process-only `FUNNEL_E2E_PORT`, `FUNNEL_E2E_ORIGIN` и при необходимости `FUNNEL_E2E_RESOLVE_IP`. Token, private key и полный playback URL тест не печатает.
+
 Для временной HTTPS-проверки тот же E2E принимает process-only `FUNNEL_E2E_PORT` и `FUNNEL_E2E_ORIGIN`. При задержке локального DNS допускается process-only `FUNNEL_E2E_RESOLVE_IP`. Quick Tunnel URL и signed token не записываются в repository; после теста tunnel останавливается. Эта проверка не создаёт DNS records и не использует Telegram transport.
 
 Настоящие PostgreSQL integration/restart/recovery tests запускаются только с отдельным URL безопасной тестовой базы:
@@ -194,7 +205,7 @@ FUNNEL_TEST_DATABASE_URL='postgresql://localhost/men_funnel_test' npm --prefix s
 - В `memory`-режиме restart по-прежнему стирает состояние; в `postgres`-режиме users, attribution, events, applications и `update_id` сохраняются.
 - При ошибке текущего шага немедленный webhook-flow останавливается. Подготовленные зависимые operations остаются заблокированными до подтверждённой доставки предыдущего шага; ручной recovery продолжает цепочку только по безопасным состояниям.
 - Telegram update сохраняет исходный `failed`/`error_stage`; recovery имеет отдельную operation timeline и не переписывает исторический результат webhook.
-- Webinar route работает только в isolated server. Production hosting, CRM integration и реальный video provider не подключены; fixture использует защищённый 40-секундный local media source.
-- Media token защищает доступ к fixture, но не является DRM. До реального provider остаётся определить его playback authorization, срок URL/session и серверный способ обновления доступа для длинного видео.
+- Webinar route работает только в isolated server. Production hosting и CRM integration не подключены; local fixture остаётся default, а Mux включается только в отдельном staging run.
+- Mux signed playback ограничивает доступ подписью и сроком JWT, но не является DRM. Для настоящего длинного вебинара нужно заранее записать точную duration в webinar configuration и выбрать TTL с запасом; автоматическое обновление playback JWT на уже открытой странице пока отсутствует.
 - Recovery и scheduler остаются ручными. Operator UI, ручное разрешение `delivery_unknown`, alerts и automatic runner отсутствуют.
 - Telegram Bot API не поддерживает idempotency key для `sendMessage`. Если provider принял сообщение, а процесс умер до сохранения receipt, операция намеренно остаётся `delivery_unknown`; автоматический дубль не создаётся.

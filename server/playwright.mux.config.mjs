@@ -7,12 +7,12 @@ if (resolverIp && resolverHost) launchArgs.push(`--host-resolver-rules=MAP ${res
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: 'webinar.spec.mjs',
+  testMatch: 'mux-staging.spec.mjs',
   fullyParallel: false,
   workers: 1,
-  timeout: 120_000,
-  expect: { timeout: 55_000 },
-  outputDir: '/tmp/men-funnel-playwright',
+  timeout: 180_000,
+  expect: { timeout: 120_000 },
+  outputDir: '/tmp/men-funnel-mux-playwright',
   reporter: [['line']],
   use: {
     channel: 'chrome',
