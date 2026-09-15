@@ -97,7 +97,6 @@ export function loadRuntimeConfig(env = process.env) {
       pollOffsetsMinutes: webinarStarsPollOffsetsMinutes,
       targetCtaShowNumbers: webinarStarsTargetCtaShowNumbers,
       offerBoundarySeconds: webinarStarsOfferBoundarySeconds,
-      applicationUrl: env.WEBINARSTARS_APPLICATION_URL ? requireHttps(env.WEBINARSTARS_APPLICATION_URL, 'WEBINARSTARS_APPLICATION_URL') : null,
     });
   }
 

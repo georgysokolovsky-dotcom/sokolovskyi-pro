@@ -8,12 +8,12 @@ export const WEBINARSTARS_SEGMENTS = Object.freeze({
   SUPPRESSED: 'SUPPRESSED',
 });
 
-export const WEBINARSTARS_FOLLOW_UP_TEMPLATES = Object.freeze({
-  NO_SHOW: Object.freeze({ templateId: 'ws_no_show_v1', purpose: 'return_to_next_webinar', cta: 'next_webinar', variables: Object.freeze(['next_webinar_url']), approved: false }),
-  LEFT_BEFORE_OFFER: Object.freeze({ templateId: 'ws_left_before_offer_v1', purpose: 'return_to_next_webinar', cta: 'next_webinar', variables: Object.freeze(['next_webinar_url']), approved: false }),
-  REACHED_OFFER_CTA_UNSEEN: Object.freeze({ templateId: 'ws_reached_offer_cta_unseen_v1', purpose: 'offer_application_step', cta: 'application', variables: Object.freeze(['application_url']), approved: false }),
-  CTA_SEEN_NOT_CLICKED: Object.freeze({ templateId: 'ws_cta_seen_not_clicked_v1', purpose: 'remove_application_barrier', cta: 'application', variables: Object.freeze(['application_url']), approved: false }),
-  CTA_CLICKED_NO_APPLICATION: Object.freeze({ templateId: 'ws_cta_clicked_no_application_v1', purpose: 'complete_application', cta: 'application', variables: Object.freeze(['application_url']), approved: false }),
+export const WEBINARSTARS_FOLLOW_UP_TEMPLATE_CONTRACTS = Object.freeze({
+  NO_SHOW: Object.freeze({ templateId: 'ws_no_show_v1', purpose: 'return_to_next_webinar', cta: 'next_webinar', variables: Object.freeze(['next_webinar_url']) }),
+  LEFT_BEFORE_OFFER: Object.freeze({ templateId: 'ws_left_before_offer_v1', purpose: 'return_to_webinar', cta: 'next_webinar', variables: Object.freeze(['next_webinar_url']) }),
+  REACHED_OFFER_CTA_UNSEEN: Object.freeze({ templateId: 'ws_offer_unseen_v1', purpose: 'move_to_application', cta: 'application', variables: Object.freeze(['application_url']) }),
+  CTA_SEEN_NOT_CLICKED: Object.freeze({ templateId: 'ws_cta_seen_v1', purpose: 'remove_application_barrier', cta: 'application', variables: Object.freeze(['application_url']) }),
+  CTA_CLICKED_NO_APPLICATION: Object.freeze({ templateId: 'ws_cta_clicked_v1', purpose: 'complete_application', cta: 'application', variables: Object.freeze(['application_url']) }),
 });
 
 export const WEBINARSTARS_FOLLOW_UP_POLICY = Object.freeze({

@@ -14,6 +14,7 @@ import { cancellationReasonForRule, createWarmingScheduler } from '../scheduler/
 import { WEBINAR_PLAYER_ACTIONS } from '../webinar/progress.mjs';
 import { createLocalPlaybackSourceProvider } from '../webinar/providers/local-playback-source.mjs';
 import { createInternalExperienceProvider } from '../webinarstars/experience-provider.mjs';
+import { createMenApplicationUrlProvider } from '../application/access-url.mjs';
 
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
@@ -156,6 +157,7 @@ export function createMenWebinarFlow({
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
   if (!playbackSourceProvider || typeof playbackSourceProvider.createPlaybackSource !== 'function') throw new Error('playbackSourceProvider.createPlaybackSource is required');
   if (!experienceProvider || typeof experienceProvider.createExperienceUrl !== 'function') throw new Error('experienceProvider.createExperienceUrl is required');
+  const applicationUrlProvider = createMenApplicationUrlProvider({ signingSecret, applicationReference, now });
 
   async function resolveToken(token, purpose) {
     const result = verifyFunnelToken(token, { purpose, secret: signingSecret, now: () => now().getTime() });
@@ -205,12 +207,7 @@ export function createMenWebinarFlow({
   }
 
   function issueApplicationToken(user) {
-    const token = issueToken({ user, purpose: 'application' });
-    const separator = applicationReference.includes('?') ? '&' : '?';
-    return {
-      ...token,
-      url: `${applicationReference}${separator}t=${encodeURIComponent(token.token)}`,
-    };
+    return applicationUrlProvider.createApplicationUrl({ user });
   }
 
   function issueMediaToken(user, webinar) {

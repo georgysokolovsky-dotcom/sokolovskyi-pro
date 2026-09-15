@@ -5,11 +5,12 @@ import { readFile, readdir } from 'node:fs/promises';
 import pg from 'pg';
 import { PostgresStore } from '../src/store/postgres-store.mjs';
 import { localFixture } from '../src/data/local-fixture.mjs';
+import { createMenApplicationUrlProvider } from '../src/application/access-url.mjs';
+import { WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES } from '../src/config/webinarstars-follow-up-templates.mjs';
 import { createCorrelationToken } from '../src/webinarstars/correlation.mjs';
 import { createWebinarStarsExperienceProvider } from '../src/webinarstars/experience-provider.mjs';
 import { createWebinarStarsSyncScheduler } from '../src/webinarstars/sync-scheduler.mjs';
 import { createWebinarStarsFollowUpScheduler, createWebinarStarsLifecycle } from '../src/webinarstars/lifecycle.mjs';
-import { WEBINARSTARS_FOLLOW_UP_TEMPLATES } from '../src/webinarstars/lifecycle-policy.mjs';
 
 const { Pool } = pg;
 const connectionString = process.env.FUNNEL_TEST_DATABASE_URL;
@@ -40,7 +41,7 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   const touch = { sourceId: source.id, source: source.source, medium: source.medium, campaign: source.campaign, content: source.content, articleSlug: source.articleSlug, startParameter: source.startParameter, occurredAt: '2026-09-15T19:00:00Z' };
   const claimed = await storeA.claimTelegramStart({ source, telegramUserId: 81001, telegramChatId: 81001, firstName: null, username: null, languageCode: null, firstTouch: touch, funnelEntryTouch: touch, eventMetadata: {}, eventKey: 'pg-webinarstars-entry', updateId: 81001, occurredAt: touch.occurredAt });
 
-  const config = { correlationSecret: 'postgres-webinarstars-secret', webinarId: '32439', registrationUrl: 'https://provider.invalid/register', applicationUrl:'https://provider.invalid/application', scheduledStart: '2026-09-15T20:00:00Z', scheduledEnd: '2026-09-15T21:00:00Z', pollOffsetsMinutes: [0,1,3,5,10,15], targetCtaShowNumbers: ['1','2'], offerBoundarySeconds: 3300 };
+  const config = { correlationSecret: 'postgres-webinarstars-secret', webinarId: '32439', registrationUrl: 'https://provider.invalid/register', scheduledStart: '2026-09-15T20:00:00Z', scheduledEnd: '2026-09-15T21:00:00Z', pollOffsetsMinutes: [0,1,3,5,10,15], targetCtaShowNumbers: ['1','2'], offerBoundarySeconds: 3300 };
   const experience = createWebinarStarsExperienceProvider({ store: storeA, config });
   const firstUrl = await experience.createExperienceUrl({ user: claimed.user });
   await storeA.close();
@@ -70,10 +71,10 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   assert.equal(events.some((event) => /^watched_/.test(event.eventType)), false);
   assert.equal((await storeC.listProviderSegmentDecisions()).length,1);
   assert.equal((await storeC.listProviderFollowUps()).length,1);
-  const templates=Object.fromEntries(Object.entries(WEBINARSTARS_FOLLOW_UP_TEMPLATES).map(([key,value])=>[key,{...value,approved:true,text:'staging synthetic',ctaLabel:'test'}]));
   const sent=[]; const deliveryNow=()=>new Date('2026-09-15T21:21:00Z');
+  const applicationUrlProvider=createMenApplicationUrlProvider({signingSecret:'pg-application-signing',applicationReference:'https://provider.invalid/application',now:deliveryNow});
   const scheduler=(store,workerId)=>createWebinarStarsFollowUpScheduler({store,config,experienceProvider:createWebinarStarsExperienceProvider({store,config}),
-    templates,workerId,now:deliveryNow,transport:{async sendMessage(payload){sent.push(payload);return {provider:'fake',messageId:`pg-${sent.length}`};}}});
+    applicationUrlProvider,templates:WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES,workerId,now:deliveryNow,transport:{async sendMessage(payload){sent.push(payload);return {provider:'fake',messageId:`pg-${sent.length}`};}}});
   const [deliveryA,deliveryB]=await Promise.all([scheduler(storeB,'delivery-a').run(),scheduler(storeC,'delivery-b').run()]);
   assert.equal(deliveryA.delivered+deliveryB.delivered,1);
   assert.equal(sent.length,1);
@@ -109,7 +110,8 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   await storeC.createApplicationWithEvent({userId:users.E.id,funnelId:users.E.funnelId,answers:{},consent:{policyVersion:'test'},idempotencyKey:'pg-late-app-e'});
   const lateSent=[]; const lateNow=()=>new Date('2026-09-15T22:31:00Z');
   const lateScheduler=(store,workerId)=>createWebinarStarsFollowUpScheduler({store,config,experienceProvider:createWebinarStarsExperienceProvider({store,config}),
-    templates,workerId,now:lateNow,transport:{async sendMessage(payload){lateSent.push(payload);return {provider:'fake',messageId:`late-${lateSent.length}`};}}});
+    applicationUrlProvider:createMenApplicationUrlProvider({signingSecret:'pg-application-signing',applicationReference:'https://provider.invalid/application',now:lateNow}),
+    templates:WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES,workerId,now:lateNow,transport:{async sendMessage(payload){lateSent.push(payload);return {provider:'fake',messageId:`late-${lateSent.length}`};}}});
   const [lateA,lateB]=await Promise.all([lateScheduler(storeB,'late-a').run(),lateScheduler(storeC,'late-b').run()]);
   assert.equal(lateA.delivered+lateB.delivered,4);
   assert.equal(lateA.cancelled+lateB.cancelled,1);

@@ -84,7 +84,9 @@ Production contract `31195`: ежедневно 19:00 Europe/Kiev, 91 минут
 
 Follow-up планируется от времени финализации: `NO_SHOW +30m`, `LEFT_BEFORE_OFFER +60m`, `REACHED_OFFER_CTA_UNSEEN +60m`, `CTA_SEEN_NOT_CLICKED +60m`, `CTA_CLICKED_NO_APPLICATION +20m`; F/G не планируются. Перед delivery повторно проверяются application, sold, stop, deletion и другие suppression states. A/B получают тот же scheduled URL с заново вычисленным тем же stable token.
 
-Пять templates пока являются placeholders: у каждого есть `template_id`, purpose, single CTA и allowlist variables, но нет утверждённого текста. Follow-up executor не подключён к production runner; до отдельного утверждения текстов и production enablement отправок нет.
+Пять v1 templates утверждены только в `server/src/config/webinarstars-follow-up-templates.mjs`: `ws_no_show_v1`, `ws_left_before_offer_v1`, `ws_offer_unseen_v1`, `ws_cta_seen_v1`, `ws_cta_clicked_v1`. Каждый имеет ровно один CTA и одну allowlisted variable. Этот staging-only config импортируют только тесты; production/default executor получает пустой template config и fail-closed. Follow-up executor не подключён к production runner.
+
+Для C/D/E static application URL не используется. Общий MEN application URL provider выпускает короткоживущий HMAC token с `purpose=application`, `user_ref` и `funnel_id`; тот же provider теперь использует существующий MEN flow. Application и suppression повторно проверяются непосредственно перед выпуском URL.
 
 Read-only parser check существующего report выполняется так:
 

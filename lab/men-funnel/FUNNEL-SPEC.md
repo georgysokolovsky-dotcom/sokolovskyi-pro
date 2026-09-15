@@ -1224,4 +1224,6 @@ Post-webinar decision создаётся один раз после finalized re
 
 Timing от report finalization: A +30 минут, B/C/D +60 минут, E +20 минут, F/G без follow-up. A/B ведут на следующий scheduled webinar с тем же stable correlation token. Application, sold, Telegram stop, deletion, deleted/anonymized и другие suppression states повторно проверяются перед delivery и отменяют scheduled operation, не изменяя исторический segment snapshot.
 
-Persistence защищает decision по provider/funnel entry/report и follow-up по `(funnel_entry, report_id, segment, follow_up_rule)`. Пять template placeholders содержат только ID, purpose, single CTA и variables allowlist. Пока тексты не утверждены, executor fail-closed и не подключён к production scheduler.
+Persistence защищает decision по provider/funnel entry/report и follow-up по `(funnel_entry, report_id, segment, follow_up_rule)`. Пять v1 templates с точными текстами, purpose, single CTA и variables allowlist утверждены только в staging configuration. Production/default template config остаётся пустым, executor fail-closed и не подключён к production scheduler.
+
+Для A/B MEN backend восстанавливает тот же stable `utm_content`. Для C/D/E static application URL запрещён: после повторной application/suppression проверки MEN backend выпускает персональный purpose-bound application token с `user_ref` и `funnel_id`. Статического `WEBINARSTARS_APPLICATION_URL` нет.
