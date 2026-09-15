@@ -14,7 +14,7 @@ function safeLog(logger, event, details = {}) {
   if (typeof logger?.info === 'function') logger.info({ event, ...details });
 }
 
-export function createWebinarStarsSyncScheduler({ store, client, config, now = () => new Date(), workerId = `webinarstars-${randomUUID()}`, leaseMs = 30_000, logger = null } = {}) {
+export function createWebinarStarsSyncScheduler({ store, client, config, lifecycle = null, now = () => new Date(), workerId = `webinarstars-${randomUUID()}`, leaseMs = 30_000, logger = null } = {}) {
   if (!store || !client || !config) throw new Error('WebinarStars sync scheduler dependencies are required');
 
   async function recordVisitor(session, report, visitor) {
@@ -80,6 +80,7 @@ export function createWebinarStarsSyncScheduler({ store, client, config, now = (
         result.matched += outcome.matched ?? 0;
         result.unmatched += outcome.unmatched ?? 0;
         if (outcome.status === 'completed') {
+          await lifecycle?.finalizeReport({ session, reportId: outcome.reportId, finalizedAt: current.toISOString() });
           await store.finishProviderSyncAttempt({ sessionId: session.id, workerId, status: 'completed', reportId: outcome.reportId });
           result.completed += 1;
         } else if (outcome.status === 'retry') {
@@ -88,8 +89,14 @@ export function createWebinarStarsSyncScheduler({ store, client, config, now = (
             await store.finishProviderSyncAttempt({ sessionId: session.id, workerId, status: 'pending', nextPollAt: next, errorCode: outcome.errorCode ?? null, errorCategory: outcome.errorCategory ?? null });
             result.retried += 1;
           } else {
-            await store.finishProviderSyncAttempt({ sessionId: session.id, workerId, status: 'finalization_pending', reportId: outcome.reportId ?? null, errorCode: outcome.errorCode ?? 'visitor_finalization_pending', errorCategory: 'retryable' });
-            result.finalizationPending += 1;
+            if (outcome.reportId) {
+              await lifecycle?.finalizeReport({ session, reportId: outcome.reportId, finalizedAt: current.toISOString() });
+              await store.finishProviderSyncAttempt({ sessionId: session.id, workerId, status: 'completed', reportId: outcome.reportId });
+              result.completed += 1;
+            } else {
+              await store.finishProviderSyncAttempt({ sessionId: session.id, workerId, status: 'finalization_pending', errorCode: outcome.errorCode ?? 'report_finalization_pending', errorCategory: 'retryable' });
+              result.finalizationPending += 1;
+            }
           }
         } else {
           await store.finishProviderSyncAttempt({ sessionId: session.id, workerId, status: outcome.status, errorCode: outcome.errorCode, errorCategory: outcome.errorCategory });

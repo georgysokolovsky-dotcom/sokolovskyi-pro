@@ -18,12 +18,14 @@ export function createWebinarStarsExperienceProvider({ store, config, includeMen
         correlationHmac, provider: 'webinarstars', funnelEntryId: user.id,
         userId: user.id, funnelId: user.funnelId, contractVersion: WEBINARSTARS_CORRELATION_CONTRACT,
       });
-      await store.ensureProviderSyncSession({
+      const session = await store.ensureProviderSyncSession({
         provider: 'webinarstars', funnelId: user.funnelId, webinarId: config.webinarId,
         scheduledStart: config.scheduledStart, scheduledEnd: config.scheduledEnd,
         funnelVersion: WEBINARSTARS_CORRELATION_CONTRACT,
         firstPollAt: new Date(new Date(config.scheduledEnd).getTime() + config.pollOffsetsMinutes[0] * 60_000).toISOString(),
       });
+      await store.ensureProviderSessionEntry({ sessionId: session.id, funnelEntryId: user.id, userId: user.id,
+        funnelId: user.funnelId, correlationHmac });
       return { url: buildWebinarStarsUrl(config.registrationUrl, token, { includeMenRef }), provider: 'webinarstars' };
     },
   });

@@ -1218,6 +1218,10 @@ Visitor correlation выполняется только через `utm_content`
 
 Provider events не подменяют first-party playback events. `date_start/date_end` нормализуются в `presence_started`, `presence_ended`, `presence_seconds` и ratio относительно scheduled session; это присутствие в WebinarStars room/page, а не просмотр видео. Они не создают `watched_25/50/75/90/100` или `webinar_completed`.
 
-`buttons_info` сохраняется только как `type`, `show_number`, `status`. Статусы ограничены `unseen|seen|clicked`. Пока show number основной sales CTA для webinar `31195` не подтверждён, `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS` остаётся пустым и canonical `cta_clicked` не создаётся. Comments дают только boolean/count; text не сохраняется.
+Production webinar `31195`: scheduled URL `https://efir.webinar-stars.com/webinar/5071c97bc4cfde5/`, ежедневный старт 19:00 Europe/Kiev, duration 91 минут, end 20:31. `buttons_info` сохраняется только как `type`, `show_number`, `status`; статусы ограничены `unseen|seen|clicked`. Sales CTA — configured show numbers `1,2`. Comments дают только boolean/count; text не сохраняется.
 
-Новые provider signals пока не запускают promotional Telegram follow-up. Для production-подключения отдельно требуются точный scheduled URL contract webinar `31195`, подтверждённый CTA button mapping и утверждённые post-webinar Telegram rules.
+Post-webinar decision создаётся один раз после finalized report. Сегменты: `NO_SHOW`; `LEFT_BEFORE_OFFER` при presence < 3300 и обеих CTA unseen; `REACHED_OFFER_CTA_UNSEEN` при presence >= 3300 и обеих unseen; `CTA_SEEN_NOT_CLICKED`; `CTA_CLICKED_NO_APPLICATION`; `APPLICATION_SUBMITTED`; `SUPPRESSED`. Precedence: suppression, application, clicked, seen, presence segment, no-show. Длительное presence не доказывает просмотр оффера; ratio capped на 1.0 и остаётся вспомогательным.
+
+Timing от report finalization: A +30 минут, B/C/D +60 минут, E +20 минут, F/G без follow-up. A/B ведут на следующий scheduled webinar с тем же stable correlation token. Application, sold, Telegram stop, deletion, deleted/anonymized и другие suppression states повторно проверяются перед delivery и отменяют scheduled operation, не изменяя исторический segment snapshot.
+
+Persistence защищает decision по provider/funnel entry/report и follow-up по `(funnel_entry, report_id, segment, follow_up_rule)`. Пять template placeholders содержат только ID, purpose, single CTA и variables allowlist. Пока тексты не утверждены, executor fail-closed и не подключён к production scheduler.

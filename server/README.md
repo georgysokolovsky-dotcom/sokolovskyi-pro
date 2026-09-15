@@ -55,6 +55,8 @@ Runner применяет только ещё не записанные SQL-фа
 
 `006_webinarstars_provider.sql` добавляет отдельные PII-free таблицы: stable correlation mapping, persistent sync session и нормализованные visitor signals. Raw token, raw UTM, API response, имя, телефон, email и текст комментария не сохраняются.
 
+`007_webinarstars_lifecycle.sql` добавляет PII-free связь funnel entry с provider session, неизменяемый segment snapshot и persistent follow-up operation с lease, cancellation reason и Telegram receipt.
+
 ## Webinar experience provider
 
 `WEBINAR_EXPERIENCE_PROVIDER=internal|webinarstars` отделён от `WEBINAR_MEDIA_PROVIDER=local|mux`. При `internal` продолжают работать MEN page, local/Mux playback и server-derived watched ranges. При `webinarstars` Telegram invite ведёт на configured scheduled WebinarStars URL; internal page и оба media provider остаются резервным путём.
@@ -76,7 +78,13 @@ Token стабилен для повторного открытия одного
 
 Visitor сопоставляется только по HMAC от `utm_content`. Отсутствующий или неизвестный token даёт `unmatched`; name/phone/email не используются. Идемпотентность строится по `(provider, report_id, visitor_id)`.
 
-Нормализуются provider signals: attendance, начало/конец и секунды присутствия, ratio относительно scheduled session, button `type/show_number/status`, наличие и количество комментариев. `presence_seconds` означает присутствие в room/page и никогда не создаёт `watched_25/50/75`. Canonical internal `cta_clicked` не создаётся: WebinarStars CTA остаётся отдельным signal, а target button определяется только явным `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS`.
+Нормализуются provider signals: attendance, начало/конец и секунды присутствия, capped ratio относительно scheduled session, button `type/show_number/status`, наличие и количество комментариев. `presence_seconds` означает присутствие в room/page, не video consumption, и никогда не создаёт `watched_25/50/75/90/100`. Canonical internal `cta_clicked` не создаётся. Для production webinar `31195` sales CTA задаются конфигом `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS=1,2`; граница оффера — `WEBINARSTARS_OFFER_BOUNDARY_SECONDS=3300`.
+
+Production contract `31195`: ежедневно 19:00 Europe/Kiev, 91 минут, scheduled end 20:31, registration URL `https://efir.webinar-stars.com/webinar/5071c97bc4cfde5/`, CTA show numbers `1,2`. После finalized report lifecycle создаёт один snapshot с приоритетом `SUPPRESSED > APPLICATION_SUBMITTED > CTA_CLICKED_NO_APPLICATION > CTA_SEEN_NOT_CLICKED > REACHED_OFFER_CTA_UNSEEN / LEFT_BEFORE_OFFER > NO_SHOW`. Граница B/C — 3300 секунд provider presence.
+
+Follow-up планируется от времени финализации: `NO_SHOW +30m`, `LEFT_BEFORE_OFFER +60m`, `REACHED_OFFER_CTA_UNSEEN +60m`, `CTA_SEEN_NOT_CLICKED +60m`, `CTA_CLICKED_NO_APPLICATION +20m`; F/G не планируются. Перед delivery повторно проверяются application, sold, stop, deletion и другие suppression states. A/B получают тот же scheduled URL с заново вычисленным тем же stable token.
+
+Пять templates пока являются placeholders: у каждого есть `template_id`, purpose, single CTA и allowlist variables, но нет утверждённого текста. Follow-up executor не подключён к production runner; до отдельного утверждения текстов и production enablement отправок нет.
 
 Read-only parser check существующего report выполняется так:
 

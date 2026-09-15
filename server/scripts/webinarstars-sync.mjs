@@ -2,6 +2,7 @@ import { loadRuntimeConfig } from '../src/config/runtime-config.mjs';
 import { PostgresStore } from '../src/store/postgres-store.mjs';
 import { createWebinarStarsClient } from '../src/webinarstars/client.mjs';
 import { createWebinarStarsSyncScheduler } from '../src/webinarstars/sync-scheduler.mjs';
+import { createWebinarStarsLifecycle } from '../src/webinarstars/lifecycle.mjs';
 
 const config = loadRuntimeConfig();
 if (config.webinarExperienceProvider !== 'webinarstars' || !config.webinarStars) throw new Error('WEBINAR_EXPERIENCE_PROVIDER=webinarstars is required');
@@ -11,6 +12,7 @@ try {
     store,
     client: createWebinarStarsClient({ baseUrl: config.webinarStars.apiBaseUrl, apiToken: config.webinarStars.apiToken, timeoutMs: config.timeoutMs }),
     config: config.webinarStars,
+    lifecycle: createWebinarStarsLifecycle({ store, config: config.webinarStars }),
     logger: { info: (entry) => console.log(JSON.stringify(entry)) },
   });
   const retryIndex = process.argv.indexOf('--retry');

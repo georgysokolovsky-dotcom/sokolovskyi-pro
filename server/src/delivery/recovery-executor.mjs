@@ -40,6 +40,7 @@ export async function getDeliverySuppressionReason(store, userId, funnelId) {
   const deletion = user ? await store.getDataDeletionRequest({ userId: user.id, funnelId }) : null;
   if (!user) return 'user_missing';
   if (user.leadStatus === 'sold') return 'sold';
+  if (['deleted', 'anonymized'].includes(user.leadStatus)) return user.leadStatus;
   if (user.promotionalEnabled === false || user.stopRequestedAt) return 'telegram_stop';
   if (user.deletionRequestedAt || deletion) return 'data_deletion_requested';
   return null;

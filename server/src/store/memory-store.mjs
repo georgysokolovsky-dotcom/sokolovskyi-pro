@@ -26,6 +26,9 @@ export class MemoryStore {
     this.providerCorrelations = new Map();
     this.providerSyncSessions = new Map();
     this.providerVisitors = new Map();
+    this.providerSessionEntries = new Map();
+    this.providerSegmentDecisions = new Map();
+    this.providerFollowUps = new Map();
   }
 
   ensureProviderCorrelation(record) {
@@ -90,6 +93,80 @@ export class MemoryStore {
 
   getProviderSyncSession(sessionId) { return clone(this.providerSyncSessions.get(sessionId) ?? null); }
   listProviderVisitors() { return clone([...this.providerVisitors.values()]); }
+
+  ensureProviderSessionEntry(record) {
+    const key = `${record.sessionId}:${record.funnelEntryId}`;
+    const saved = this.providerSessionEntries.get(key) ?? { ...clone(record), createdAt: this.now().toISOString() };
+    this.providerSessionEntries.set(key, saved);
+    return clone(saved);
+  }
+
+  listProviderSessionEntries(sessionId) {
+    return clone([...this.providerSessionEntries.values()].filter((item) => item.sessionId === sessionId));
+  }
+
+  findProviderVisitorForUser({ sessionId, userId }) {
+    return clone([...this.providerVisitors.values()].find((item) => item.sessionId === sessionId && item.userId === userId) ?? null);
+  }
+
+  createProviderSegmentDecision(record) {
+    const key = `${record.provider}:${record.funnelEntryId}:${record.reportId}`;
+    const existing = this.providerSegmentDecisions.get(key);
+    if (existing) return { record: clone(existing), duplicate: true };
+    const saved = { ...clone(record), createdAt: this.now().toISOString() };
+    this.providerSegmentDecisions.set(key, saved);
+    return { record: clone(saved), duplicate: false };
+  }
+
+  listProviderSegmentDecisions() { return clone([...this.providerSegmentDecisions.values()]); }
+
+  scheduleProviderFollowUp(record) {
+    const key = `${record.funnelEntryId}:${record.reportId}:${record.segment}:${record.followUpRule}`;
+    const existing = [...this.providerFollowUps.values()].find((item) => item.key === key);
+    if (existing) return { record: clone(existing), duplicate: true };
+    const timestamp = this.now().toISOString();
+    const saved = { ...clone(record), key, status: 'scheduled', cancellationReason: null, leaseOwner: null, requestStartedAt: null,
+      leaseStartedAt: null, leaseExpiresAt: null, provider: null, providerMessageId: null, deliveredAt: null,
+      createdAt: timestamp, updatedAt: timestamp };
+    this.providerFollowUps.set(saved.id, saved);
+    return { record: clone(saved), duplicate: false };
+  }
+
+  claimProviderFollowUp({ workerId, leaseMs, now = this.now().toISOString() }) {
+    const nowMs = new Date(now).getTime();
+    for (const stale of this.providerFollowUps.values()) {
+      if (stale.status === 'processing' && stale.requestStartedAt && new Date(stale.leaseExpiresAt).getTime() <= nowMs) {
+        Object.assign(stale, { status: 'delivery_unknown', cancellationReason: 'lease_expired_after_request', leaseOwner: null,
+          leaseStartedAt: null, leaseExpiresAt: null, updatedAt: now });
+      }
+    }
+    const record = [...this.providerFollowUps.values()].find((item) =>
+      (item.status === 'scheduled' && new Date(item.scheduledFor).getTime() <= nowMs)
+      || (item.status === 'processing' && new Date(item.leaseExpiresAt).getTime() <= nowMs));
+    if (!record) return null;
+    Object.assign(record, { status: 'processing', leaseOwner: workerId, leaseStartedAt: now,
+      leaseExpiresAt: new Date(nowMs + leaseMs).toISOString(), updatedAt: now });
+    return clone(record);
+  }
+
+  markProviderFollowUpRequestStarted({ id, workerId }) {
+    const record = this.providerFollowUps.get(id);
+    if (!record || record.status !== 'processing' || record.leaseOwner !== workerId || record.requestStartedAt) return null;
+    record.requestStartedAt = this.now().toISOString();
+    record.updatedAt = record.requestStartedAt;
+    return clone(record);
+  }
+
+  finishProviderFollowUp({ id, workerId, status, cancellationReason = null, provider = null, providerMessageId = null }) {
+    const record = this.providerFollowUps.get(id);
+    if (!record || record.status !== 'processing' || record.leaseOwner !== workerId) return null;
+    const timestamp = this.now().toISOString();
+    Object.assign(record, { status, cancellationReason, provider, providerMessageId,
+      deliveredAt: status === 'delivered' ? timestamp : null, leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null, updatedAt: timestamp });
+    return clone(record);
+  }
+
+  listProviderFollowUps() { return clone([...this.providerFollowUps.values()]); }
 
   seed({ funnel, sources = [], bonuses = [], messageTemplates = [], automationRules = [], webinar }) {
     this.funnels.set(funnel.id, clone(funnel));

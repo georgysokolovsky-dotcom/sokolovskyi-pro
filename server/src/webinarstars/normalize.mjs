@@ -76,9 +76,6 @@ export function classifyVisitor(visitor, session, policy) {
     presenceEnded: visitor.presenceEnded,
     presenceSeconds: visitor.presenceSeconds,
     presenceRatio,
-    presenceClass: visitor.presenceSeconds == null ? 'registered_but_not_matched'
-      : visitor.presenceSeconds < policy.shortPresenceSeconds ? 'attended_short'
-        : presenceRatio >= policy.substantialPresenceRatio ? 'attended_substantial' : 'attended_short',
     buttons: visitor.buttons,
     targetCtaSeen: targetButtons.some((button) => ['seen', 'clicked'].includes(button.status)),
     targetCtaClicked: targetButtons.some((button) => button.status === 'clicked'),

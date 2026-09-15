@@ -70,10 +70,9 @@ export function loadRuntimeConfig(env = process.env) {
   const muxPlaybackBufferSeconds = Number(env.MUX_PLAYBACK_BUFFER_SECONDS ?? 600);
   const webinarStarsPollOffsetsMinutes = String(env.WEBINARSTARS_POLL_OFFSETS_MINUTES ?? '0,1,3,5,10,15')
     .split(',').map((value) => Number(value.trim()));
-  const webinarStarsTargetCtaShowNumbers = String(env.WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS ?? '')
+  const webinarStarsTargetCtaShowNumbers = String(env.WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS ?? '1,2')
     .split(',').map((value) => value.trim()).filter(Boolean);
-  const webinarStarsShortPresenceSeconds = Number(env.WEBINARSTARS_SHORT_PRESENCE_SECONDS ?? 300);
-  const webinarStarsSubstantialPresenceRatio = Number(env.WEBINARSTARS_SUBSTANTIAL_PRESENCE_RATIO ?? 0.5);
+  const webinarStarsOfferBoundarySeconds = Number(env.WEBINARSTARS_OFFER_BOUNDARY_SECONDS ?? 3300);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535');
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('TELEGRAM_TIMEOUT_MS must be a positive number');
   if (!Number.isInteger(muxPlaybackTokenTtlSeconds) || muxPlaybackTokenTtlSeconds <= 0) throw new Error('MUX_PLAYBACK_TOKEN_TTL_SECONDS must be a positive integer');
@@ -81,8 +80,7 @@ export function loadRuntimeConfig(env = process.env) {
   if (!webinarStarsPollOffsetsMinutes.length || webinarStarsPollOffsetsMinutes.some((value, index) => !Number.isInteger(value) || value < 0 || (index && value <= webinarStarsPollOffsetsMinutes[index - 1]))) {
     throw new Error('WEBINARSTARS_POLL_OFFSETS_MINUTES must be increasing non-negative integers');
   }
-  if (!Number.isFinite(webinarStarsShortPresenceSeconds) || webinarStarsShortPresenceSeconds < 0) throw new Error('WEBINARSTARS_SHORT_PRESENCE_SECONDS must be non-negative');
-  if (!Number.isFinite(webinarStarsSubstantialPresenceRatio) || webinarStarsSubstantialPresenceRatio < 0 || webinarStarsSubstantialPresenceRatio > 1) throw new Error('WEBINARSTARS_SUBSTANTIAL_PRESENCE_RATIO must be from 0 to 1');
+  if (!Number.isInteger(webinarStarsOfferBoundarySeconds) || webinarStarsOfferBoundarySeconds < 0) throw new Error('WEBINARSTARS_OFFER_BOUNDARY_SECONDS must be a non-negative integer');
 
   let webinarStars = null;
   if (webinarExperienceProvider === 'webinarstars') {
@@ -98,8 +96,8 @@ export function loadRuntimeConfig(env = process.env) {
       scheduledStart: scheduledStart.toISOString(), scheduledEnd: scheduledEnd.toISOString(),
       pollOffsetsMinutes: webinarStarsPollOffsetsMinutes,
       targetCtaShowNumbers: webinarStarsTargetCtaShowNumbers,
-      shortPresenceSeconds: webinarStarsShortPresenceSeconds,
-      substantialPresenceRatio: webinarStarsSubstantialPresenceRatio,
+      offerBoundarySeconds: webinarStarsOfferBoundarySeconds,
+      applicationUrl: env.WEBINARSTARS_APPLICATION_URL ? requireHttps(env.WEBINARSTARS_APPLICATION_URL, 'WEBINARSTARS_APPLICATION_URL') : null,
     });
   }
 

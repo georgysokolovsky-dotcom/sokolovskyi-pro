@@ -14,7 +14,7 @@ const end = '2026-09-15T21:00:00.000Z';
 const config = Object.freeze({
   correlationSecret: secret, webinarId: '32439', registrationUrl: 'https://example.invalid/register',
   scheduledStart: start, scheduledEnd: end, pollOffsetsMinutes: [0, 1, 3, 5, 10, 15],
-  targetCtaShowNumbers: [], shortPresenceSeconds: 300, substantialPresenceRatio: 0.5,
+  targetCtaShowNumbers: ['1', '2'], offerBoundarySeconds: 3300,
 });
 
 function makeStore(now = () => new Date(end)) {
@@ -86,7 +86,7 @@ test('report normalization, strict session selection and provider semantics are 
   assert.equal(JSON.stringify(report).includes('private@example.com'), false);
   const signals = classifyVisitor(report.visitors[0], { scheduledStart: start, scheduledEnd: end }, { ...config, targetCtaShowNumbers: ['2'] });
   assert.equal(signals.presenceRatio, 0.5);
-  assert.equal(signals.presenceClass, 'attended_substantial');
+  assert.equal('presenceClass' in signals, false);
   assert.equal(signals.targetCtaClicked, true);
   assert.equal('watchedVideoSeconds' in signals, false);
 });

@@ -7,6 +7,7 @@ import { createTelegramBotApiTransport } from '../src/telegram/bot-api-transport
 import { getTelegramBotIdentity } from '../src/telegram/bot-api-admin.mjs';
 import { createWebinarStarsClient } from '../src/webinarstars/client.mjs';
 import { createWebinarStarsSyncScheduler } from '../src/webinarstars/sync-scheduler.mjs';
+import { createWebinarStarsLifecycle } from '../src/webinarstars/lifecycle.mjs';
 import { createInternalExperienceProvider, createWebinarStarsExperienceProvider } from '../src/webinarstars/experience-provider.mjs';
 
 const config = loadRuntimeConfig();
@@ -41,6 +42,7 @@ try {
       store,
       client: createWebinarStarsClient({ baseUrl: config.webinarStars.apiBaseUrl, apiToken: config.webinarStars.apiToken, timeoutMs: config.timeoutMs }),
       config: config.webinarStars,
+      lifecycle: createWebinarStarsLifecycle({ store, config: config.webinarStars }),
       workerId: `manual-webinarstars-${randomUUID()}`,
       logger,
     });
