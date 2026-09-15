@@ -17,7 +17,31 @@ test('local runtime keeps memory and dev transport as safe defaults', () => {
   assert.equal(config.storeMode, 'memory');
   assert.equal(config.telegramTransportMode, 'dev');
   assert.equal(config.webinarMediaProvider, 'local');
+  assert.equal(config.webinarExperienceProvider, 'internal');
   assert.equal(config.host, '127.0.0.1');
+});
+
+test('WebinarStars experience is separate from media and fails closed', () => {
+  assert.throws(() => loadRuntimeConfig({ ...secrets, WEBINAR_EXPERIENCE_PROVIDER: 'webinarstars' }), /DATABASE_URL/);
+  const base = {
+    ...secrets,
+    FUNNEL_STORE: 'postgres',
+    DATABASE_URL: 'postgresql://provider.invalid/test',
+    WEBINAR_EXPERIENCE_PROVIDER: 'webinarstars',
+    WEBINARSTARS_API_BASE_URL: 'https://provider.invalid',
+    WEBINARSTARS_API_TOKEN: 'api-token',
+    WEBINARSTARS_CORRELATION_SECRET: 'correlation-secret',
+    WEBINARSTARS_WEBINAR_ID: '32439',
+    WEBINARSTARS_REGISTRATION_URL: 'https://provider.invalid/register',
+    WEBINARSTARS_SCHEDULED_START: '2026-09-15T20:00:00Z',
+    WEBINARSTARS_SCHEDULED_END: '2026-09-15T21:00:00Z',
+  };
+  const config = loadRuntimeConfig(base);
+  assert.equal(config.webinarExperienceProvider, 'webinarstars');
+  assert.equal(config.webinarMediaProvider, 'local');
+  assert.deepEqual(config.webinarStars.pollOffsetsMinutes, [0, 1, 3, 5, 10, 15]);
+  assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_REGISTRATION_URL: 'https://provider.invalid/register?token=bad' }), /must not contain/);
+  assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_SCHEDULED_END: '2026-09-15T19:00:00Z' }), /valid and increasing/);
 });
 
 test('Mux media is opt-in and fails closed without all signing inputs', () => {

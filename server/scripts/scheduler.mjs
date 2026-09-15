@@ -5,6 +5,9 @@ import { createMenWebinarFlow } from '../src/flow/men-webinar.mjs';
 import { PostgresStore } from '../src/store/postgres-store.mjs';
 import { createTelegramBotApiTransport } from '../src/telegram/bot-api-transport.mjs';
 import { getTelegramBotIdentity } from '../src/telegram/bot-api-admin.mjs';
+import { createWebinarStarsClient } from '../src/webinarstars/client.mjs';
+import { createWebinarStarsSyncScheduler } from '../src/webinarstars/sync-scheduler.mjs';
+import { createInternalExperienceProvider, createWebinarStarsExperienceProvider } from '../src/webinarstars/experience-provider.mjs';
 
 const config = loadRuntimeConfig();
 if (config.storeMode !== 'postgres' || config.telegramTransportMode !== 'bot-api') {
@@ -28,8 +31,21 @@ try {
     warmingPolicy: localFixture.warmingPolicy,
     transport: createTelegramBotApiTransport({ fetchImpl: globalThis.fetch, baseUrl: config.botApiBaseUrl, botToken: config.botToken, timeoutMs: config.timeoutMs }),
     schedulerOptions: { workerId: `manual-${randomUUID()}`, logger },
+    experienceProvider: config.webinarExperienceProvider === 'webinarstars'
+      ? createWebinarStarsExperienceProvider({ store, config: config.webinarStars })
+      : createInternalExperienceProvider(),
   });
   await flow.runWarmingScheduler();
+  if (config.webinarExperienceProvider === 'webinarstars') {
+    const webinarStars = createWebinarStarsSyncScheduler({
+      store,
+      client: createWebinarStarsClient({ baseUrl: config.webinarStars.apiBaseUrl, apiToken: config.webinarStars.apiToken, timeoutMs: config.timeoutMs }),
+      config: config.webinarStars,
+      workerId: `manual-webinarstars-${randomUUID()}`,
+      logger,
+    });
+    await webinarStars.run();
+  }
 } finally {
   await store.close();
 }

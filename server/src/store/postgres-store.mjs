@@ -51,6 +51,13 @@ function mapDeliveryOperation(row) {
     createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
   };
 }
+function mapProviderSession(row) {
+  return row && { id: row.id, provider: row.provider, funnelId: row.funnel_id, webinarId: row.webinar_id,
+    scheduledStart: iso(row.scheduled_start), scheduledEnd: iso(row.scheduled_end), funnelVersion: row.funnel_version,
+    reportId: row.report_id, status: row.status, attemptIndex: row.attempt_index, nextPollAt: iso(row.next_poll_at),
+    leaseOwner: row.lease_owner, leaseStartedAt: iso(row.lease_started_at), leaseExpiresAt: iso(row.lease_expires_at),
+    lastErrorCode: row.last_error_code, lastErrorCategory: row.last_error_category, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) };
+}
 
 export class PostgresStore {
   constructor({ connectionString, pool = null } = {}) {
@@ -72,6 +79,68 @@ export class PostgresStore {
       throw error;
     } finally { client.release(); }
   }
+
+  async ensureProviderCorrelation({ correlationHmac, provider, funnelEntryId, userId, funnelId, contractVersion }) {
+    const row = (await this.pool.query(`insert into provider_correlations
+      (correlation_hmac,provider,funnel_entry_id,user_id,funnel_id,contract_version) values ($1,$2,$3,$4,$5,$6)
+      on conflict (provider,funnel_entry_id,contract_version) do update set provider=excluded.provider returning *`,
+    [correlationHmac,provider,funnelEntryId,userId,funnelId,contractVersion])).rows[0];
+    if (row.correlation_hmac !== correlationHmac || row.user_id !== userId) throw new Error('provider_correlation_conflict');
+    return { correlationHmac: row.correlation_hmac, provider: row.provider, funnelEntryId: row.funnel_entry_id, userId: row.user_id, funnelId: row.funnel_id, contractVersion: row.contract_version };
+  }
+
+  async findProviderCorrelation({ provider, correlationHmac }) {
+    const row = (await this.pool.query('select * from provider_correlations where provider=$1 and correlation_hmac=$2',[provider,correlationHmac])).rows[0];
+    return row ? { correlationHmac: row.correlation_hmac, provider: row.provider, funnelEntryId: row.funnel_entry_id, userId: row.user_id, funnelId: row.funnel_id, contractVersion: row.contract_version } : null;
+  }
+
+  async ensureProviderSyncSession({ provider, funnelId, webinarId, scheduledStart, scheduledEnd, funnelVersion, firstPollAt }) {
+    const row = (await this.pool.query(`insert into provider_sync_sessions
+      (id,provider,funnel_id,webinar_id,scheduled_start,scheduled_end,funnel_version,status,next_poll_at)
+      values ($1,$2,$3,$4,$5,$6,$7,'pending',$8)
+      on conflict (provider,webinar_id,scheduled_start,scheduled_end,funnel_version) do update set provider=excluded.provider returning *`,
+    [randomUUID(),provider,funnelId,String(webinarId),scheduledStart,scheduledEnd,funnelVersion,firstPollAt])).rows[0];
+    return mapProviderSession(row);
+  }
+
+  async claimProviderSyncSession({ provider, workerId, leaseMs, now=new Date().toISOString() }) {
+    return this.transaction(async (db) => {
+      const row = (await db.query(`select * from provider_sync_sessions where provider=$1 and
+        ((status='pending' and next_poll_at<=$2) or (status='processing' and lease_expires_at<=$2))
+        order by next_poll_at,created_at for update skip locked limit 1`,[provider,now])).rows[0];
+      if (!row) return null;
+      return mapProviderSession((await db.query(`update provider_sync_sessions set status='processing',lease_owner=$2,
+        lease_started_at=$3,lease_expires_at=$4,updated_at=$3 where id=$1 returning *`,
+      [row.id,workerId,now,new Date(new Date(now).getTime()+leaseMs).toISOString()])).rows[0]);
+    });
+  }
+
+  async finishProviderSyncAttempt({ sessionId, workerId, status, nextPollAt=null, reportId=null, errorCode=null, errorCategory=null }) {
+    return mapProviderSession((await this.pool.query(`update provider_sync_sessions set status=$3,attempt_index=attempt_index+1,
+      next_poll_at=coalesce($4,next_poll_at),report_id=coalesce($5,report_id),last_error_code=$6,last_error_category=$7,
+      lease_owner=null,lease_started_at=null,lease_expires_at=null,updated_at=now()
+      where id=$1 and status='processing' and lease_owner=$2 returning *`,
+    [sessionId,workerId,status,nextPollAt,reportId,errorCode,errorCategory])).rows[0]);
+  }
+
+  async retryProviderSyncSession({ sessionId, provider, nextPollAt }) {
+    return mapProviderSession((await this.pool.query(`update provider_sync_sessions set status='pending',next_poll_at=$3,attempt_index=0,
+      last_error_code=null,last_error_category=null,updated_at=now() where id=$1 and provider=$2
+      and status in ('finalization_pending','permanent_failure','configuration_failure') returning *`,[sessionId,provider,nextPollAt])).rows[0]);
+  }
+
+  async ingestProviderVisitor({ provider, sessionId, reportId, visitorId, userId, funnelId, correlationStatus, signals }) {
+    const row = (await this.pool.query(`insert into provider_visitors
+      (provider,session_id,report_id,visitor_id,user_id,funnel_id,correlation_status,signals)
+      values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (provider,report_id,visitor_id) do nothing returning *`,
+    [provider,sessionId,reportId,visitorId,userId,funnelId,correlationStatus,JSON.stringify(signals)])).rows[0];
+    if (!row) return { record: null, duplicate: true };
+    return { record: { provider: row.provider, sessionId: row.session_id, reportId: row.report_id, visitorId: row.visitor_id,
+      userId: row.user_id, funnelId: row.funnel_id, correlationStatus: row.correlation_status, signals: row.signals, ingestedAt: iso(row.ingested_at) }, duplicate: false };
+  }
+
+  async getProviderSyncSession(sessionId) { return mapProviderSession((await this.pool.query('select * from provider_sync_sessions where id=$1',[sessionId])).rows[0]); }
+  async listProviderVisitors() { return (await this.pool.query('select * from provider_visitors order by ingested_at')).rows.map((row)=>({ provider:row.provider,sessionId:row.session_id,reportId:row.report_id,visitorId:row.visitor_id,userId:row.user_id,funnelId:row.funnel_id,correlationStatus:row.correlation_status,signals:row.signals,ingestedAt:iso(row.ingested_at) })); }
 
   async seed({ funnel, sources = [], bonuses = [], messageTemplates = [], automationRules = [], webinar }) {
     await this.transaction(async (db) => {

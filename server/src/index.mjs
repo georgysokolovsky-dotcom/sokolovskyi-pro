@@ -9,6 +9,7 @@ import { getTelegramBotIdentity } from './telegram/bot-api-admin.mjs';
 import { loadRuntimeConfig } from './config/runtime-config.mjs';
 import { createLocalPlaybackSourceProvider } from './webinar/providers/local-playback-source.mjs';
 import { createMuxMediaSource } from './webinar/providers/mux-media-source.mjs';
+import { createInternalExperienceProvider, createWebinarStarsExperienceProvider } from './webinarstars/experience-provider.mjs';
 
 const config = loadRuntimeConfig();
 let transport;
@@ -40,6 +41,9 @@ const playbackSourceProvider = config.webinarMediaProvider === 'mux'
       playbackBufferSeconds: config.muxPlaybackBufferSeconds,
     })
   : createLocalPlaybackSourceProvider();
+const experienceProvider = config.webinarExperienceProvider === 'webinarstars'
+  ? createWebinarStarsExperienceProvider({ store, config: config.webinarStars })
+  : createInternalExperienceProvider();
 
 if (config.mode === 'staging') {
   const identity = await getTelegramBotIdentity({
@@ -62,6 +66,7 @@ const flow = createMenWebinarFlow({
   webinarBaseUrl: config.webinarBaseUrl,
   transport,
   playbackSourceProvider,
+  experienceProvider,
 });
 const app = createApp({ flow, mode: config.mode, webhookSecret: config.webhookSecret, adminKey: config.adminSecret });
 

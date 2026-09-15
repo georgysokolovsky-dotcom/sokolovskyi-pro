@@ -1205,3 +1205,19 @@ application without further relationship: 12 months
 - разделение lab-архитектуры и production/legal решений.
 
 Текущий vertical slice изменяет только `server/` и `lab/men-funnel/`. Публичный Astro `src/`, production website, analytics, DNS, Cloudflare zone и deploy остаются неизменными.
+
+## 6. WebinarStars experience provider
+
+WebinarStars — внешний experience provider: video, autowebinar scenario, chat, comments и buttons. MEN backend остаётся источником истины для identity, attribution, Telegram lifecycle, scheduler, applications и CRM timeline. Internal MEN page с local/Mux playback и first-party progress сохраняется как отдельный резервный experience path.
+
+Для одного подтверждённого `funnel_entry_id` backend детерминированно создаёт stable opaque token contract v1 через HMAC-SHA256 и передаёт его только как `utm_content`. В PostgreSQL хранится полный lookup HMAC, provider, funnel entry, internal user и версия контракта; raw URL token и raw UTM не хранятся. Повторный invite восстанавливает тот же token. `men_ref`, Telegram ID, имя, телефон, email, SmartSender ID и raw UUID не используются.
+
+После configured scheduled end persistent job опрашивает API в `+0/+1/+3/+5/+10/+15`. `get_reports` нужен для привязки report одновременно к `webinar_id`, scheduled start и scheduled end; выбор «последнего report» запрещён. `get_report` является authoritative source. Webhook dependency и публичный WebinarStars webhook endpoint отсутствуют.
+
+Visitor correlation выполняется только через `utm_content` HMAC lookup. Неизвестный token сохраняет обезличенный `UNMATCHED_PROVIDER_VISITOR`, без эвристик по PII. Повторный poll безопасен по `report_id + visitor_id`; concurrent worker защищён lease и row lock. После исчерпания окна job переходит в `finalization_pending`, чтобы оператор мог повторить sync явно.
+
+Provider events не подменяют first-party playback events. `date_start/date_end` нормализуются в `presence_started`, `presence_ended`, `presence_seconds` и ratio относительно scheduled session; это присутствие в WebinarStars room/page, а не просмотр видео. Они не создают `watched_25/50/75/90/100` или `webinar_completed`.
+
+`buttons_info` сохраняется только как `type`, `show_number`, `status`. Статусы ограничены `unseen|seen|clicked`. Пока show number основной sales CTA для webinar `31195` не подтверждён, `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS` остаётся пустым и canonical `cta_clicked` не создаётся. Comments дают только boolean/count; text не сохраняется.
+
+Новые provider signals пока не запускают promotional Telegram follow-up. Для production-подключения отдельно требуются точный scheduled URL contract webinar `31195`, подтверждённый CTA button mapping и утверждённые post-webinar Telegram rules.

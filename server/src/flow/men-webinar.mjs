@@ -13,6 +13,7 @@ import { createDeliveryRecoveryExecutor } from '../delivery/recovery-executor.mj
 import { cancellationReasonForRule, createWarmingScheduler } from '../scheduler/warming-scheduler.mjs';
 import { WEBINAR_PLAYER_ACTIONS } from '../webinar/progress.mjs';
 import { createLocalPlaybackSourceProvider } from '../webinar/providers/local-playback-source.mjs';
+import { createInternalExperienceProvider } from '../webinarstars/experience-provider.mjs';
 
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
@@ -149,10 +150,12 @@ export function createMenWebinarFlow({
   now = () => new Date(),
   playerPolicy = { telemetryToleranceSeconds: 2, maxTelemetryGapSeconds: 15 },
   playbackSourceProvider = createLocalPlaybackSourceProvider(),
+  experienceProvider = createInternalExperienceProvider(),
 }) {
   if (!store) throw new Error('store is required');
   if (!transport || typeof transport.sendMessage !== 'function') throw new Error('transport.sendMessage is required');
   if (!playbackSourceProvider || typeof playbackSourceProvider.createPlaybackSource !== 'function') throw new Error('playbackSourceProvider.createPlaybackSource is required');
+  if (!experienceProvider || typeof experienceProvider.createExperienceUrl !== 'function') throw new Error('experienceProvider.createExperienceUrl is required');
 
   async function resolveToken(token, purpose) {
     const result = verifyFunnelToken(token, { purpose, secret: signingSecret, now: () => now().getTime() });
@@ -193,9 +196,11 @@ export function createMenWebinarFlow({
       ? `${configuredBase}/${encodeURIComponent(webinar?.videoId ?? 'unconfigured')}`
       : `lab://men-funnel/video/${encodeURIComponent(webinar?.videoId ?? 'unconfigured')}`;
     const separator = videoReference.includes('?') ? '&' : '?';
+    const experience = await experienceProvider.createExperienceUrl({ user, webinar, internalUrl: `${videoReference}${separator}t=${encodeURIComponent(token.token)}` });
     return {
       ...token,
-      url: `${videoReference}${separator}t=${encodeURIComponent(token.token)}`,
+      url: experience.url,
+      experienceProvider: experience.provider,
     };
   }
 

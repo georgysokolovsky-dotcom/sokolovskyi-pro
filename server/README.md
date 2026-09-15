@@ -53,6 +53,39 @@ Runner применяет только ещё не записанные SQL-фа
 
 `005_webinar_progress.sql` добавляет first-party player sessions и просмотренные диапазоны. Telegram, delivery, recovery и scheduler tables не дублируются.
 
+`006_webinarstars_provider.sql` добавляет отдельные PII-free таблицы: stable correlation mapping, persistent sync session и нормализованные visitor signals. Raw token, raw UTM, API response, имя, телефон, email и текст комментария не сохраняются.
+
+## Webinar experience provider
+
+`WEBINAR_EXPERIENCE_PROVIDER=internal|webinarstars` отделён от `WEBINAR_MEDIA_PROVIDER=local|mux`. При `internal` продолжают работать MEN page, local/Mux playback и server-derived watched ranges. При `webinarstars` Telegram invite ведёт на configured scheduled WebinarStars URL; internal page и оба media provider остаются резервным путём.
+
+WebinarStars включается fail-closed только с PostgreSQL и полным server-side config: API base/token, correlation secret, webinar ID, registration URL, scheduled start/end и poll policy. Значения не hardcoded. Default — `internal`, поэтому migration и код сами по себе не переключают traffic.
+
+Correlation contract `webinarstars-utm-content-v1`:
+
+```text
+funnel_entry_id → HMAC-SHA256 → первые 16 hex-символов → utm_content
+raw token → отдельный HMAC lookup key → provider_correlations
+```
+
+Token стабилен для повторного открытия одного funnel entry, не содержит Telegram ID, PII или raw UUID. Outbound URL добавляет только `utm_source=telegram`, `utm_medium=bot`, `utm_campaign=men_webinar_v1`, `utm_content=<token>`; `men_ref` по умолчанию отсутствует.
+
+Тот же ручной persistent scheduler запускает WebinarStars ingestion после scheduled end по смещениям `+0/+1/+3/+5/+10/+15` минут. Он использует `get_reports` для строгого выбора report по webinar ID и scheduled start/end, затем authoritative `get_report`. Webhook и публичный WebinarStars endpoint отсутствуют. Lease и PostgreSQL row lock защищают от двух concurrent executors; после последней неудачной попытки session получает `finalization_pending` и допускает явный operator retry.
+
+Отдельный безопасный запуск только provider ingestion: `npm --prefix server run webinarstars:sync`. Terminal session можно вернуть в очередь командой `npm --prefix server run webinarstars:sync -- --retry <session_uuid>`; это не запускает Telegram warming.
+
+Visitor сопоставляется только по HMAC от `utm_content`. Отсутствующий или неизвестный token даёт `unmatched`; name/phone/email не используются. Идемпотентность строится по `(provider, report_id, visitor_id)`.
+
+Нормализуются provider signals: attendance, начало/конец и секунды присутствия, ratio относительно scheduled session, button `type/show_number/status`, наличие и количество комментариев. `presence_seconds` означает присутствие в room/page и никогда не создаёт `watched_25/50/75`. Canonical internal `cta_clicked` не создаётся: WebinarStars CTA остаётся отдельным signal, а target button определяется только явным `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS`.
+
+Read-only parser check существующего report выполняется так:
+
+```bash
+WEBINARSTARS_API_BASE_URL=https://efir.webinar-stars.com npm --prefix server run staging:webinarstars-verify -- 397771
+```
+
+Команда читает token из ignored environment и выводит только report ID, presence полей, visitor count, нормализованные button statuses и comment counts.
+
 ## Webinar page и прогресс
 
 Server отдаёт изолированную page по адресу `/webinar/:videoId?t=<webinar_token>`. До валидации signature, expiration, `purpose=webinar`, funnel и user страница не создаёт tracking-записей. Refresh не погашает действующий token.

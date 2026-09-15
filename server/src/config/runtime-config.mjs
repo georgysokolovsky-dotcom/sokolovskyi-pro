@@ -2,6 +2,7 @@ const modes = new Set(['local', 'staging']);
 const storeModes = new Set(['memory', 'postgres']);
 const transportModes = new Set(['dev', 'bot-api']);
 const webinarMediaProviders = new Set(['local', 'mux']);
+const webinarExperienceProviders = new Set(['internal', 'webinarstars']);
 
 function required(env, names) {
   const missing = names.filter((name) => typeof env[name] !== 'string' || !env[name].trim());
@@ -27,15 +28,25 @@ export function loadRuntimeConfig(env = process.env) {
   const storeMode = env.FUNNEL_STORE ?? 'memory';
   const telegramTransportMode = env.TELEGRAM_TRANSPORT ?? 'dev';
   const webinarMediaProvider = env.WEBINAR_MEDIA_PROVIDER ?? 'local';
+  const webinarExperienceProvider = env.WEBINAR_EXPERIENCE_PROVIDER ?? 'internal';
   if (!modes.has(mode)) throw new Error('FUNNEL_MODE must be local or staging');
   if (!storeModes.has(storeMode)) throw new Error('FUNNEL_STORE must be memory or postgres');
   if (!transportModes.has(telegramTransportMode)) throw new Error('TELEGRAM_TRANSPORT must be dev or bot-api');
   if (!webinarMediaProviders.has(webinarMediaProvider)) throw new Error('WEBINAR_MEDIA_PROVIDER must be local or mux');
+  if (!webinarExperienceProviders.has(webinarExperienceProvider)) throw new Error('WEBINAR_EXPERIENCE_PROVIDER must be internal or webinarstars');
 
   required(env, ['TOKEN_SIGNING_SECRET', 'TELEGRAM_WEBHOOK_SECRET', 'ADMIN_SESSION_SECRET']);
   if (storeMode === 'postgres') required(env, ['DATABASE_URL']);
   if (telegramTransportMode === 'bot-api') required(env, ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_BOT_API_BASE_URL']);
   if (webinarMediaProvider === 'mux') required(env, ['MUX_SIGNING_KEY_ID', 'MUX_SIGNING_PRIVATE_KEY', 'MUX_PLAYBACK_ID']);
+  if (webinarExperienceProvider === 'webinarstars') {
+    required(env, [
+      'DATABASE_URL', 'WEBINARSTARS_API_BASE_URL', 'WEBINARSTARS_API_TOKEN',
+      'WEBINARSTARS_CORRELATION_SECRET', 'WEBINARSTARS_WEBINAR_ID',
+      'WEBINARSTARS_REGISTRATION_URL', 'WEBINARSTARS_SCHEDULED_START', 'WEBINARSTARS_SCHEDULED_END',
+    ]);
+    if (storeMode !== 'postgres') throw new Error('FUNNEL_STORE=postgres is required for WebinarStars experience provider');
+  }
 
   let webhookUrl = null;
   let webinarBaseUrl = env.WEBINAR_BASE_URL?.trim() || null;
@@ -57,16 +68,48 @@ export function loadRuntimeConfig(env = process.env) {
   const port = Number(env.PORT ?? 8787);
   const muxPlaybackTokenTtlSeconds = Number(env.MUX_PLAYBACK_TOKEN_TTL_SECONDS ?? 3600);
   const muxPlaybackBufferSeconds = Number(env.MUX_PLAYBACK_BUFFER_SECONDS ?? 600);
+  const webinarStarsPollOffsetsMinutes = String(env.WEBINARSTARS_POLL_OFFSETS_MINUTES ?? '0,1,3,5,10,15')
+    .split(',').map((value) => Number(value.trim()));
+  const webinarStarsTargetCtaShowNumbers = String(env.WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS ?? '')
+    .split(',').map((value) => value.trim()).filter(Boolean);
+  const webinarStarsShortPresenceSeconds = Number(env.WEBINARSTARS_SHORT_PRESENCE_SECONDS ?? 300);
+  const webinarStarsSubstantialPresenceRatio = Number(env.WEBINARSTARS_SUBSTANTIAL_PRESENCE_RATIO ?? 0.5);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535');
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('TELEGRAM_TIMEOUT_MS must be a positive number');
   if (!Number.isInteger(muxPlaybackTokenTtlSeconds) || muxPlaybackTokenTtlSeconds <= 0) throw new Error('MUX_PLAYBACK_TOKEN_TTL_SECONDS must be a positive integer');
   if (!Number.isInteger(muxPlaybackBufferSeconds) || muxPlaybackBufferSeconds < 0) throw new Error('MUX_PLAYBACK_BUFFER_SECONDS must be a non-negative integer');
+  if (!webinarStarsPollOffsetsMinutes.length || webinarStarsPollOffsetsMinutes.some((value, index) => !Number.isInteger(value) || value < 0 || (index && value <= webinarStarsPollOffsetsMinutes[index - 1]))) {
+    throw new Error('WEBINARSTARS_POLL_OFFSETS_MINUTES must be increasing non-negative integers');
+  }
+  if (!Number.isFinite(webinarStarsShortPresenceSeconds) || webinarStarsShortPresenceSeconds < 0) throw new Error('WEBINARSTARS_SHORT_PRESENCE_SECONDS must be non-negative');
+  if (!Number.isFinite(webinarStarsSubstantialPresenceRatio) || webinarStarsSubstantialPresenceRatio < 0 || webinarStarsSubstantialPresenceRatio > 1) throw new Error('WEBINARSTARS_SUBSTANTIAL_PRESENCE_RATIO must be from 0 to 1');
+
+  let webinarStars = null;
+  if (webinarExperienceProvider === 'webinarstars') {
+    const scheduledStart = new Date(env.WEBINARSTARS_SCHEDULED_START);
+    const scheduledEnd = new Date(env.WEBINARSTARS_SCHEDULED_END);
+    if (!Number.isFinite(scheduledStart.getTime()) || !Number.isFinite(scheduledEnd.getTime()) || scheduledEnd <= scheduledStart) throw new Error('WebinarStars scheduled start/end must be valid and increasing');
+    webinarStars = Object.freeze({
+      apiBaseUrl: requireHttps(env.WEBINARSTARS_API_BASE_URL, 'WEBINARSTARS_API_BASE_URL'),
+      apiToken: env.WEBINARSTARS_API_TOKEN,
+      correlationSecret: env.WEBINARSTARS_CORRELATION_SECRET,
+      webinarId: String(env.WEBINARSTARS_WEBINAR_ID),
+      registrationUrl: requireHttps(env.WEBINARSTARS_REGISTRATION_URL, 'WEBINARSTARS_REGISTRATION_URL'),
+      scheduledStart: scheduledStart.toISOString(), scheduledEnd: scheduledEnd.toISOString(),
+      pollOffsetsMinutes: webinarStarsPollOffsetsMinutes,
+      targetCtaShowNumbers: webinarStarsTargetCtaShowNumbers,
+      shortPresenceSeconds: webinarStarsShortPresenceSeconds,
+      substantialPresenceRatio: webinarStarsSubstantialPresenceRatio,
+    });
+  }
 
   return Object.freeze({
     mode,
     storeMode,
     telegramTransportMode,
     webinarMediaProvider,
+    webinarExperienceProvider,
+    webinarStars,
     host: env.HOST?.trim() || (mode === 'staging' ? '0.0.0.0' : '127.0.0.1'),
     port,
     timeoutMs,

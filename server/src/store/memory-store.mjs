@@ -23,7 +23,73 @@ export class MemoryStore {
     this.deliveryOperations = new Map();
     this.webinarSessions = new Map();
     this.webinarTelemetryRequests = new Map();
+    this.providerCorrelations = new Map();
+    this.providerSyncSessions = new Map();
+    this.providerVisitors = new Map();
   }
+
+  ensureProviderCorrelation(record) {
+    const existing = this.providerCorrelations.get(record.correlationHmac);
+    if (existing && (existing.userId !== record.userId || existing.funnelEntryId !== record.funnelEntryId)) throw new Error('provider_correlation_conflict');
+    const saved = existing ?? { ...clone(record), createdAt: this.now().toISOString() };
+    this.providerCorrelations.set(record.correlationHmac, saved);
+    return clone(saved);
+  }
+
+  findProviderCorrelation({ provider, correlationHmac }) {
+    const record = this.providerCorrelations.get(correlationHmac);
+    return clone(record?.provider === provider ? record : null);
+  }
+
+  ensureProviderSyncSession({ provider, funnelId, webinarId, scheduledStart, scheduledEnd, funnelVersion, firstPollAt }) {
+    const key = `${provider}:${webinarId}:${scheduledStart}:${scheduledEnd}:${funnelVersion}`;
+    const existing = [...this.providerSyncSessions.values()].find((item) => item.key === key);
+    if (existing) return clone(existing);
+    const timestamp = this.now().toISOString();
+    const record = { id: randomUUID(), key, provider, funnelId, webinarId: String(webinarId), scheduledStart, scheduledEnd, funnelVersion,
+      reportId: null, status: 'pending', attemptIndex: 0, nextPollAt: firstPollAt, leaseOwner: null, leaseStartedAt: null,
+      leaseExpiresAt: null, lastErrorCode: null, lastErrorCategory: null, createdAt: timestamp, updatedAt: timestamp };
+    this.providerSyncSessions.set(record.id, record);
+    return clone(record);
+  }
+
+  claimProviderSyncSession({ provider, workerId, leaseMs, now = this.now().toISOString() }) {
+    const nowMs = new Date(now).getTime();
+    const record = [...this.providerSyncSessions.values()].find((item) => item.provider === provider
+      && ((item.status === 'pending' && new Date(item.nextPollAt).getTime() <= nowMs)
+        || (item.status === 'processing' && new Date(item.leaseExpiresAt).getTime() <= nowMs)));
+    if (!record) return null;
+    Object.assign(record, { status: 'processing', leaseOwner: workerId, leaseStartedAt: now, leaseExpiresAt: new Date(nowMs + leaseMs).toISOString(), updatedAt: now });
+    return clone(record);
+  }
+
+  finishProviderSyncAttempt({ sessionId, workerId, status, nextPollAt = null, reportId = null, errorCode = null, errorCategory = null }) {
+    const record = this.providerSyncSessions.get(sessionId);
+    if (!record || record.status !== 'processing' || record.leaseOwner !== workerId) return null;
+    Object.assign(record, { status, reportId: reportId ?? record.reportId, attemptIndex: record.attemptIndex + 1,
+      nextPollAt: nextPollAt ?? record.nextPollAt, lastErrorCode: errorCode, lastErrorCategory: errorCategory,
+      leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null, updatedAt: this.now().toISOString() });
+    return clone(record);
+  }
+
+  retryProviderSyncSession({ sessionId, provider, nextPollAt }) {
+    const record = this.providerSyncSessions.get(sessionId);
+    if (!record || record.provider !== provider || !['finalization_pending', 'permanent_failure', 'configuration_failure'].includes(record.status)) return null;
+    Object.assign(record, { status: 'pending', nextPollAt, attemptIndex: 0, lastErrorCode: null, lastErrorCategory: null, updatedAt: this.now().toISOString() });
+    return clone(record);
+  }
+
+  ingestProviderVisitor(record) {
+    const key = `${record.provider}:${record.reportId}:${record.visitorId}`;
+    const existing = this.providerVisitors.get(key);
+    if (existing) return { record: clone(existing), duplicate: true };
+    const saved = { ...clone(record), ingestedAt: this.now().toISOString() };
+    this.providerVisitors.set(key, saved);
+    return { record: clone(saved), duplicate: false };
+  }
+
+  getProviderSyncSession(sessionId) { return clone(this.providerSyncSessions.get(sessionId) ?? null); }
+  listProviderVisitors() { return clone([...this.providerVisitors.values()]); }
 
   seed({ funnel, sources = [], bonuses = [], messageTemplates = [], automationRules = [], webinar }) {
     this.funnels.set(funnel.id, clone(funnel));

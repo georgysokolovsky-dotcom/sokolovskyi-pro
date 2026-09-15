@@ -41,6 +41,14 @@ export const FUNNEL_EVENTS = Object.freeze([
   'application_submitted',
   'telegram_stop',
   'data_deletion_requested',
+  'webinarstars_report_finalized',
+  'webinarstars_attended',
+  'webinarstars_presence_started',
+  'webinarstars_presence_ended',
+  'webinarstars_presence_seconds',
+  'webinarstars_cta_seen',
+  'webinarstars_cta_clicked',
+  'webinarstars_comment_present',
 ]);
 
 export const APPLICATION_FIELDS = Object.freeze([
@@ -75,6 +83,12 @@ export const PUBLIC_EVENT_METADATA_KEYS = Object.freeze([
   'cancellation_reason',
   'watched_seconds',
   'progress_percent',
+  'report_id',
+  'visitor_id',
+  'provider_timestamp',
+  'presence_seconds',
+  'presence_ratio',
+  'comment_count',
 ]);
 
 export const BONUS_DELIVERY_MODES = Object.freeze(['link', 'telegram_audio']);
