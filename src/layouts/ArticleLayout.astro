@@ -9,7 +9,7 @@ import Header from '../components/Header.astro';
 import WebinarBand from '../components/WebinarBand.astro';
 import { authors } from '../data/authors.js';
 import { site } from '../data/site.js';
-import { getTopicFromArticle, absoluteUrl } from '../lib/site-routes.js';
+import { getTopicFromArticle, absoluteUrl, topicPath } from '../lib/site-routes.js';
 import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../lib/seo.js';
 
 const { entry, Content, relatedArticles = [] } = Astro.props;
@@ -18,7 +18,7 @@ const topic = getTopicFromArticle(entry);
 const canonical = absoluteUrl(`/articles/${slug}/`);
 const breadcrumbItems = [
   { label: 'Статьи', href: '/articles/' },
-  { label: topic?.label ?? 'Материал' },
+  { label: topic?.label ?? 'Материал', href: topic ? topicPath(topic.id) : undefined },
   { label: title },
 ];
 const summary = (entry.body ?? '').match(/^- \[([^\]]+)\]\(#([^\)]+)\)/gm)?.map((line) => {
