@@ -1,4 +1,4 @@
-import { FUNNEL_ID } from '../constants.mjs';
+import { DIRECT_START_PARAMETER, FUNNEL_ID } from '../constants.mjs';
 
 export const localFixture = Object.freeze({
   telegramBotUsername: 'sokolovskyi_men_bot',
@@ -19,6 +19,16 @@ export const localFixture = Object.freeze({
     configVersion: 1,
   },
   sources: [
+    {
+      id: '6f0f2c2e-9f82-4f2a-9a83-2d7e8a6f1008',
+      funnelId: FUNNEL_ID,
+      source: 'direct',
+      medium: 'direct',
+      campaign: 'men_webinar',
+      content: 'telegram_start',
+      articleSlug: null,
+      startParameter: DIRECT_START_PARAMETER,
+    },
     {
       id: '2f0f2c2e-9f82-4f2a-9a83-2d7e8a6f1001',
       funnelId: FUNNEL_ID,

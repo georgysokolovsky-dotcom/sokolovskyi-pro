@@ -186,6 +186,20 @@ funnelId: men_webinar_v1
 
 Это тестовая запись. Публичные статьи сейчас не изменяются и не импортируют `TelegramCta`.
 
+Для обычного `/start` без payload используется direct source mapping:
+
+```text
+source: direct
+medium: direct
+campaign: men_webinar
+content: telegram_start
+articleSlug: null
+startParameter: direct_men_webinar
+funnelId: men_webinar_v1
+```
+
+Это внутренний ключ source registry: пользователь не обязан передавать его в Telegram-команде.
+
 ### 2.3. Передача attribution до Telegram
 
 Landing получает source context из URL, signed attribution reference или короткого server-generated кода. При клике CTA этот context превращается в разрешённый `start_parameter`.
@@ -252,7 +266,7 @@ Lab landing объясняет:
 4. До входящего `/start` нет постоянной пользовательской записи.
 5. Если local server не подключён, landing остаётся lab-экраном и не обещает доставку bonus.
 
-В первой lab-версии проверяется источник `article_wife_cheating`. Direct source для funnel поддерживается моделью, но его отдельная fixture-запись и текст входа появятся только на следующем этапе реализации.
+В lab-версии проверяются параметризованный вход `article_wife_cheating` и обычный `/start` через direct source mapping.
 
 ## B. Telegram Start
 
@@ -265,13 +279,13 @@ Telegram webhook принимает update только после провер�
 - `message.from.first_name`;
 - `message.from.username`;
 - `message.from.language_code`;
-- текст `/start <start_parameter>`.
+- текст `/start` или `/start <start_parameter>`.
 
 Сырые Telegram update и лишние поля не сохраняются.
 
 ### Что сохраняется
 
-При валидном `start_parameter` система:
+При обычном `/start` используется direct mapping, при `/start <start_parameter>` — валидный ключ из source registry. После разрешения source система:
 
 1. находит source mapping и его `funnel_id`;
 2. находит пользователя по `telegram_user_id` или создаёт внутренний `user_id`;
@@ -323,6 +337,7 @@ start_parameter
 ```
 
 Полные traffic-поля берутся из source mapping. Повторный `/start` не заменяет `first_touch` и не создаёт второй профиль.
+Пустой payload выбирает direct mapping; неизвестный непустой параметр по-прежнему отклоняется. Для уже существующего пользователя `first_touch` и `funnel_entry_touch` сохраняют исходный вход.
 
 ### Идемпотентность
 

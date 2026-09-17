@@ -1,4 +1,5 @@
 export const FUNNEL_ID = 'men_webinar_v1';
+export const DIRECT_START_PARAMETER = 'direct_men_webinar';
 
 export const LEAD_STATUSES = Object.freeze([
   'anonymous',

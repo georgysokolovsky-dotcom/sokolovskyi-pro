@@ -1,5 +1,6 @@
 import {
   FUNNEL_ID,
+  DIRECT_START_PARAMETER,
   FUNNEL_EVENTS,
   WEBINAR_EVENTS,
   APPLICATION_FIELDS,
@@ -454,8 +455,9 @@ export function createMenWebinarFlow({
 
   async function handleTelegramStart({ telegramUserId, firstName = null, username = null, languageCode = null, startParameter, updateId = null, timestamp = null }) {
     if (telegramUserId == null) throw new FunnelError('invalid_input', 'telegramUserId is required');
-    if (!sourcePattern.test(startParameter ?? '')) throw new FunnelError('invalid_start_parameter', 'Invalid start parameter');
-    let source = await store.findSourceByStartParameter(FUNNEL_ID, startParameter);
+    const resolvedStartParameter = startParameter === '' || startParameter == null ? DIRECT_START_PARAMETER : startParameter;
+    if (!sourcePattern.test(resolvedStartParameter)) throw new FunnelError('invalid_start_parameter', 'Invalid start parameter');
+    let source = await store.findSourceByStartParameter(FUNNEL_ID, resolvedStartParameter);
     if (!source) throw new FunnelError('unknown_source', 'Unknown start parameter', 404);
 
     const occurredAt = timestamp ?? new Date().toISOString();
