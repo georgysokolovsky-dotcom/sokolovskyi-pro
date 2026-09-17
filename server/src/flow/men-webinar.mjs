@@ -728,6 +728,12 @@ export function createMenWebinarFlow({
     return issueApplicationToken(user);
   }
 
+  async function validateApplicationAccess({ token }) {
+    const { user } = await resolveToken(token, 'application');
+    const application = await store.getApplicationForUser(user.id);
+    return { submitted: application?.status === 'submitted' };
+  }
+
   async function submitApplication({ token, answers, consent, idempotencyKey }) {
     const { user } = await resolveToken(token, 'application');
     const cleanAnswers = sanitizeAnswers(answers);
@@ -828,6 +834,7 @@ export function createMenWebinarFlow({
     recordApplicationStarted,
     recordTokenEvent,
     createApplicationToken,
+    validateApplicationAccess,
     submitApplication,
     stopTelegramFlow,
     requestDataDeletion,

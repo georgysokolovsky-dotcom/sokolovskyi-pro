@@ -8,6 +8,7 @@ import { createMenWebinarFlow } from '../src/flow/men-webinar.mjs';
 import { createDevTelegramTransport } from '../src/telegram/transport.mjs';
 import { createApp } from '../src/http/app.mjs';
 import { signFunnelToken, verifyFunnelToken } from '../src/security/signed-tokens.mjs';
+import { createMenApplicationUrlProvider } from '../src/application/access-url.mjs';
 
 const { Pool } = pg;
 const signingSecret = 'browser-e2e-signing-secret';
@@ -76,6 +77,31 @@ test.describe.serial('protected webinar browser flow', () => {
   const eventTypes = async (userId) => (await store.listUserEvents(userId)).map((event) => event.eventType);
   const operationByRule = async (userId, ruleName) => (await store.listDeliveryOperations({ userId }))
     .find((operation) => operation.descriptor?.ruleName === ruleName);
+
+  test('staging application page submits through browser with one bound token', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const started = await startUser();
+    const user = await store.getUser(started.userId);
+    const provider = createMenApplicationUrlProvider({ signingSecret, applicationReference: `${browserOrigin}/application` });
+    const access = provider.createApplicationUrl({ user });
+    const navigation = await page.goto(access.url);
+    expect(navigation.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: 'Запись на разбор' })).toBeVisible();
+    await page.locator('#name').fill('Тест браузера');
+    await page.locator('#situation').fill('Проверка формы в изолированном staging');
+    await page.locator('input[name="consent"]').check();
+    await page.screenshot({ path: '/tmp/men-staging-application.png', fullPage: true });
+    await page.getByRole('button', { name: 'Отправить заявку' }).click();
+    await expect(page.getByText('Заявка отправлена. Спасибо.')).toBeVisible();
+    expect(new URL(page.url()).searchParams.has('t')).toBe(false);
+    expect(errors).toEqual([]);
+    const application = await store.getApplicationForUser(user.id);
+    expect(application.status).toBe('submitted');
+    expect(application.answers).toEqual({ name: 'Тест браузера', situation: 'Проверка формы в изолированном staging' });
+    await page.goto(access.url);
+    await expect(page.getByText('Заявка уже отправлена')).toBeVisible();
+  });
 
   test('real playback persists milestones, reconciles scheduler and reaches application flow', async ({ page, context }) => {
     const externalRequests = [];

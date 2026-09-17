@@ -193,14 +193,16 @@ export class PostgresStore {
     return {record:mapProviderFollowUp(existing),duplicate:true};
   }
 
-  async claimProviderFollowUp({ workerId, leaseMs, now=new Date().toISOString() }) {
+  async claimProviderFollowUp({ workerId, leaseMs, now=new Date().toISOString(), userId=null }) {
     return this.transaction(async(db)=>{
       await db.query(`update provider_follow_ups set status='delivery_unknown',cancellation_reason='lease_expired_after_request',
         lease_owner=null,lease_started_at=null,lease_expires_at=null,updated_at=$1
-        where status='processing' and request_started_at is not null and lease_expires_at<=$1`,[now]);
+        where status='processing' and request_started_at is not null and lease_expires_at<=$1
+        and ($2::uuid is null or user_id=$2)`,[now,userId]);
       const row=(await db.query(`select * from provider_follow_ups where
         ((status='scheduled' and scheduled_for<=$1) or (status='processing' and request_started_at is null and lease_expires_at<=$1))
-        order by scheduled_for,created_at for update skip locked limit 1`,[now])).rows[0];
+        and ($2::uuid is null or user_id=$2)
+        order by scheduled_for,created_at for update skip locked limit 1`,[now,userId])).rows[0];
       if (!row) return null;
       return mapProviderFollowUp((await db.query(`update provider_follow_ups set status='processing',lease_owner=$2,
         lease_started_at=$3,lease_expires_at=$4,updated_at=$3 where id=$1 returning *`,
@@ -522,6 +524,8 @@ export class PostgresStore {
       }
       await this.addEvent({userId,funnelId,eventType:'application_submitted',metadata:{purpose:'application'},idempotencyKey:`application-event:${row.id}`},db);
       await this.updateUser(userId,{leadStatus:'application_submitted'},db);
+      await db.query(`update provider_follow_ups set status='cancelled',cancellation_reason='application_submitted',updated_at=now()
+        where user_id=$1 and status='scheduled'`,[userId]);
       return {application:mapApplication(row),duplicate:false};
     });
   }

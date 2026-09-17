@@ -23,6 +23,18 @@ if (config.telegramTransportMode === 'dev') {
     timeoutMs: config.timeoutMs,
   });
 }
+if (config.mode === 'staging' && config.webinarExperienceProvider === 'webinarstars') {
+  const underlyingTransport = transport;
+  transport = Object.freeze({
+    provider: underlyingTransport.provider,
+    async sendMessage(payload) {
+      if (String(payload.telegramChatId) !== config.allowedTelegramUserId) {
+        throw new Error('staging_chat_not_allowed');
+      }
+      return underlyingTransport.sendMessage(payload);
+    },
+  });
+}
 
 let store;
 if (config.storeMode === 'memory') {
@@ -64,11 +76,15 @@ const flow = createMenWebinarFlow({
   botUsername: config.expectedBotUsername ?? config.botUsername ?? localFixture.telegramBotUsername,
   entryNotice: localFixture.entryNotice,
   webinarBaseUrl: config.webinarBaseUrl,
+  applicationReference: config.mode === 'staging' && config.webinarExperienceProvider === 'webinarstars'
+    ? `${new URL(config.webhookUrl).origin}/application`
+    : 'lab://men-funnel/application',
   transport,
   playbackSourceProvider,
   experienceProvider,
 });
-const app = createApp({ flow, mode: config.mode, webhookSecret: config.webhookSecret, adminKey: config.adminSecret });
+const app = createApp({ flow, mode: config.mode, webhookSecret: config.webhookSecret, adminKey: config.adminSecret,
+  allowedTelegramUserId: config.mode === 'staging' && config.webinarExperienceProvider === 'webinarstars' ? config.allowedTelegramUserId : null });
 
 app.listen(config.port, config.host, () => {
   console.log(`Funnel server started in ${config.mode} mode with ${config.storeMode} store`);

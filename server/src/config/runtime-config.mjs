@@ -62,6 +62,9 @@ export function loadRuntimeConfig(env = process.env) {
       throw new Error('TELEGRAM_WEBHOOK_URL must end with /v1/webhooks/telegram');
     }
     webinarBaseUrl = requireHttps(env.WEBINAR_BASE_URL, 'WEBINAR_BASE_URL');
+    if (webinarExperienceProvider === 'webinarstars' && !/^[1-9][0-9]{4,19}$/.test(env.STAGING_ALLOWED_TELEGRAM_USER_ID ?? '')) {
+      throw new Error('STAGING_ALLOWED_TELEGRAM_USER_ID is required for live WebinarStars staging');
+    }
   }
 
   const timeoutMs = Number(env.TELEGRAM_TIMEOUT_MS ?? 5000);
@@ -112,6 +115,7 @@ export function loadRuntimeConfig(env = process.env) {
     timeoutMs,
     webinarBaseUrl,
     webhookUrl,
+    allowedTelegramUserId: env.STAGING_ALLOWED_TELEGRAM_USER_ID?.trim() || null,
     botUsername: env.TELEGRAM_BOT_USERNAME?.trim() || null,
     expectedBotUsername: env.TELEGRAM_EXPECTED_BOT_USERNAME?.trim().replace(/^@/, '') || null,
     databaseUrl: env.DATABASE_URL?.trim() || null,

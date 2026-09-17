@@ -45,14 +45,14 @@ export function createWebinarStarsLifecycle({ store, config, now = () => new Dat
   return Object.freeze({ finalizeReport });
 }
 
-export function createWebinarStarsFollowUpScheduler({ store, config, experienceProvider, applicationUrlProvider = null, transport, templates = {},
+export function createWebinarStarsFollowUpScheduler({ store, config, experienceProvider, applicationUrlProvider = null, transport, templates = {}, allowedUserId = null,
   now = () => new Date(), workerId = `webinarstars-follow-up-${randomUUID()}`, leaseMs = 30_000 } = {}) {
   if (!store || !config || !experienceProvider || !transport) throw new Error('WebinarStars follow-up scheduler dependencies are required');
 
   async function run({ limit = 100 } = {}) {
     const result = { workerId, claimed: 0, delivered: 0, cancelled: 0, suppressed: 0, blockedTemplate: 0, deliveryUnknown: 0, failed: 0 };
     while (result.claimed < limit) {
-      const operation = await store.claimProviderFollowUp({ workerId, leaseMs, now: now().toISOString() });
+      const operation = await store.claimProviderFollowUp({ workerId, leaseMs, now: now().toISOString(), userId: allowedUserId });
       if (!operation) break;
       result.claimed += 1;
       const application = await store.getApplicationForUser(operation.userId);

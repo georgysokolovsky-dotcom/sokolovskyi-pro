@@ -108,13 +108,17 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   assert.deepEqual({A:count('NO_SHOW'),B:count('LEFT_BEFORE_OFFER'),C:count('REACHED_OFFER_CTA_UNSEEN'),D:count('CTA_SEEN_NOT_CLICKED'),
     E:count('CTA_CLICKED_NO_APPLICATION'),F:count('APPLICATION_SUBMITTED'),G:count('SUPPRESSED')},{A:1,B:1,C:1,D:1,E:2,F:1,G:3});
   await storeC.createApplicationWithEvent({userId:users.E.id,funnelId:users.E.funnelId,answers:{},consent:{policyVersion:'test'},idempotencyKey:'pg-late-app-e'});
+  assert.equal((await storeC.listProviderFollowUps()).find((item) => item.userId === users.E.id).status, 'cancelled');
+  const unrelated = await storeB.claimProviderFollowUp({ workerId: 'scoped-test', leaseMs: 30000, now: '2026-09-15T22:31:00Z', userId: randomUUID() });
+  assert.equal(unrelated, null);
+  assert.equal((await storeB.listProviderFollowUps()).filter((item) => item.status === 'scheduled').length, 4);
   const lateSent=[]; const lateNow=()=>new Date('2026-09-15T22:31:00Z');
   const lateScheduler=(store,workerId)=>createWebinarStarsFollowUpScheduler({store,config,experienceProvider:createWebinarStarsExperienceProvider({store,config}),
     applicationUrlProvider:createMenApplicationUrlProvider({signingSecret:'pg-application-signing',applicationReference:'https://provider.invalid/application',now:lateNow}),
     templates:WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES,workerId,now:lateNow,transport:{async sendMessage(payload){lateSent.push(payload);return {provider:'fake',messageId:`late-${lateSent.length}`};}}});
   const [lateA,lateB]=await Promise.all([lateScheduler(storeB,'late-a').run(),lateScheduler(storeC,'late-b').run()]);
   assert.equal(lateA.delivered+lateB.delivered,4);
-  assert.equal(lateA.cancelled+lateB.cancelled,1);
+  assert.equal(lateA.cancelled+lateB.cancelled,0);
   assert.equal(lateSent.length,4);
   for (const name of ['A','B']) {
     const payload=lateSent.find((item)=>item.userId===users[name].id);

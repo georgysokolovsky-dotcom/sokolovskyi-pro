@@ -82,6 +82,16 @@ test('staging fails closed unless PostgreSQL, official Bot API and HTTPS URLs ar
   assert.throws(() => loadRuntimeConfig({ ...base, TELEGRAM_WEBHOOK_URL: 'http://staging.invalid/v1/webhooks/telegram' }), /HTTPS/);
   assert.throws(() => loadRuntimeConfig({ ...base, TELEGRAM_WEBHOOK_URL: 'https://staging.invalid/wrong' }), /must end/);
   assert.throws(() => loadRuntimeConfig({ ...base, TELEGRAM_WEBHOOK_URL: 'https://staging.invalid/v1/webhooks/telegram?secret=bad' }), /must not contain/);
+  const provider = {
+    ...base, WEBINAR_EXPERIENCE_PROVIDER: 'webinarstars',
+    WEBINARSTARS_API_BASE_URL: 'https://provider.invalid', WEBINARSTARS_API_TOKEN: 'test-api',
+    WEBINARSTARS_CORRELATION_SECRET: 'test-correlation', WEBINARSTARS_WEBINAR_ID: '31195',
+    WEBINARSTARS_REGISTRATION_URL: 'https://provider.invalid/register',
+    WEBINARSTARS_SCHEDULED_START: '2026-09-17T16:00:00Z', WEBINARSTARS_SCHEDULED_END: '2026-09-17T17:31:00Z',
+  };
+  assert.throws(() => loadRuntimeConfig(provider), /STAGING_ALLOWED_TELEGRAM_USER_ID/);
+  assert.throws(() => loadRuntimeConfig({ ...provider, STAGING_ALLOWED_TELEGRAM_USER_ID: 'not-an-id' }), /STAGING_ALLOWED_TELEGRAM_USER_ID/);
+  assert.equal(loadRuntimeConfig({ ...provider, STAGING_ALLOWED_TELEGRAM_USER_ID: '123456789' }).allowedTelegramUserId, '123456789');
 });
 
 test('Telegram webhook admin calls are normalized and do not expose secrets', async (t) => {

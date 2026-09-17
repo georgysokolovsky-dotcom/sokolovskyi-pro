@@ -16,6 +16,7 @@
     "operations:inspect": "node scripts/operations-inspect.mjs",
     "staging:webinarstars-verify": "node --env-file-if-exists=../.env.staging.local scripts/webinarstars-verify.mjs",
     "webinarstars:sync": "node scripts/webinarstars-sync.mjs",
+    "staging:webinarstars-followup": "node --env-file-if-exists=../.env.staging.local scripts/webinarstars-staging-followup.mjs",
     "staging:webhook": "node scripts/telegram-webhook.mjs",
     "staging:verify": "node scripts/staging-verify.mjs"
   },

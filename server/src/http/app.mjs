@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import { FunnelError } from '../flow/men-webinar.mjs';
 import { renderWebinarDeniedPage, renderWebinarPage } from '../webinar/page.mjs';
 import { createLocalFixtureMediaSource } from '../webinar/local-media-source.mjs';
+import { renderApplicationPage, renderApplicationDeniedPage } from '../application/page.mjs';
 
 const maxBodyBytes = 64 * 1024;
 const playerClient = readFileSync(new URL('../webinar/player-client.js', import.meta.url));
 const hlsClient = readFileSync(new URL(import.meta.resolve('hls.js/dist/hls.min.js')));
+const applicationClient = readFileSync(new URL('../application/form-client.js', import.meta.url));
 
 async function readJson(request) {
   const chunks = [];
@@ -53,7 +55,7 @@ function requireLocalAdmin(request, adminKey) {
   if (!adminKey || request.headers['x-admin-local-key'] !== adminKey) throw new FunnelError('unauthorized', 'Unauthorized', 401);
 }
 
-export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey = null, mediaSource = createLocalFixtureMediaSource() }) {
+export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey = null, allowedTelegramUserId = null, mediaSource = createLocalFixtureMediaSource() }) {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
@@ -69,6 +71,20 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
 
       if (method === 'GET' && url.pathname === '/health') {
         return sendJson(response, 200, { ok: true, mode });
+      }
+
+      if (method === 'GET' && url.pathname === '/application') {
+        try {
+          const access = await flow.validateApplicationAccess({ token: url.searchParams.get('t') });
+          return sendWebinarDocument(response, 200, renderApplicationPage(access));
+        } catch (error) {
+          return sendWebinarDocument(response, error instanceof FunnelError ? error.status : 500, renderApplicationDeniedPage());
+        }
+      }
+
+      if (method === 'GET' && url.pathname === '/v1/applications/form.js') {
+        response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        return response.end(applicationClient);
       }
 
       if (method === 'GET' && url.pathname === '/v1/webinar/player.js') {
@@ -110,6 +126,9 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
         if (!webhookSecret || request.headers['x-telegram-bot-api-secret-token'] !== webhookSecret) throw new FunnelError('unauthorized', 'Unauthorized', 401);
         const body = await readJson(request);
         const message = body.message;
+        if (allowedTelegramUserId != null && String(message?.from?.id) !== String(allowedTelegramUserId)) {
+          return sendJson(response, 200, { ok: true, ignored: true });
+        }
         const text = typeof message?.text === 'string' ? message.text : '';
         const match = text.match(/^\/start(?:\s+([a-z0-9_-]{1,64}))?$/i);
         if (!match || !message?.from?.id) return sendJson(response, 200, { ok: true, ignored: true });
