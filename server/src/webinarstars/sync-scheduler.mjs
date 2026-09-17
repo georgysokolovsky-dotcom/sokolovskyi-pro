@@ -23,6 +23,7 @@ export function createWebinarStarsSyncScheduler({ store, client, config, lifecyc
       ? await store.findProviderCorrelation({ provider, correlationHmac: createCorrelationHmac(token, config.correlationSecret) })
       : null;
     const signals = classifyVisitor(visitor, session, config);
+    if (correlation && !signals.timingValid) throw new Error('invalid_provider_presence_interval');
     const saved = await store.ingestProviderVisitor({
       provider, sessionId: session.id, reportId: report.reportId, visitorId: visitor.visitorId,
       userId: correlation?.userId ?? null, funnelId: session.funnelId,
@@ -49,16 +50,20 @@ export function createWebinarStarsSyncScheduler({ store, client, config, lifecyc
   }
 
   async function execute(session) {
-    const reports = normalizeReports(await client.getReports());
+    const reports = normalizeReports(await client.getReports(), { timeZone: config.timeZone });
     let selected;
     try { selected = selectReportForSession(reports, session); }
     catch {
       return { status: 'permanent_failure', errorCode: 'ambiguous_report', errorCategory: 'permanent' };
     }
     if (!selected) return { status: 'retry', errorCode: 'report_not_found', errorCategory: 'retryable' };
-    const report = normalizeReport(await client.getReport(selected.reportId));
+    const report = normalizeReport(await client.getReport(selected.reportId), { timeZone: config.timeZone });
     if (!report.reportId) report.reportId = selected.reportId;
-    if (String(report.webinarId) !== String(session.webinarId)) return { status: 'permanent_failure', errorCode: 'report_webinar_mismatch', errorCategory: 'permanent' };
+    if (String(report.webinarId) !== String(session.webinarId) || report.reportId !== selected.reportId
+      || report.scheduledStart !== new Date(session.scheduledStart).toISOString()
+      || report.scheduledEnd !== new Date(session.scheduledEnd).toISOString()) {
+      return { status: 'permanent_failure', errorCode: 'report_session_mismatch', errorCategory: 'permanent' };
+    }
     let matched = 0;
     let unmatched = 0;
     for (const visitor of report.visitors) {

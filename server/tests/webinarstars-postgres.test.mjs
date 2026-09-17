@@ -41,7 +41,7 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   const touch = { sourceId: source.id, source: source.source, medium: source.medium, campaign: source.campaign, content: source.content, articleSlug: source.articleSlug, startParameter: source.startParameter, occurredAt: '2026-09-15T19:00:00Z' };
   const claimed = await storeA.claimTelegramStart({ source, telegramUserId: 81001, telegramChatId: 81001, firstName: null, username: null, languageCode: null, firstTouch: touch, funnelEntryTouch: touch, eventMetadata: {}, eventKey: 'pg-webinarstars-entry', updateId: 81001, occurredAt: touch.occurredAt });
 
-  const config = { correlationSecret: 'postgres-webinarstars-secret', webinarId: '32439', registrationUrl: 'https://provider.invalid/register', scheduledStart: '2026-09-15T20:00:00Z', scheduledEnd: '2026-09-15T21:00:00Z', pollOffsetsMinutes: [0,1,3,5,10,15], targetCtaShowNumbers: ['1','2'], offerBoundarySeconds: 3300 };
+  const config = { correlationSecret: 'postgres-webinarstars-secret', webinarId: '32439', registrationUrl: 'https://provider.invalid/register', timeZone: 'Europe/Kiev', scheduledStart: '2026-09-15T20:00:00Z', scheduledEnd: '2026-09-15T21:00:00Z', pollOffsetsMinutes: [0,1,3,5,10,15], targetCtaShowNumbers: ['1','2'], offerBoundarySeconds: 3300 };
   const experience = createWebinarStarsExperienceProvider({ store: storeA, config });
   const firstUrl = await experience.createExperienceUrl({ user: claimed.user });
   await storeA.close();
@@ -53,7 +53,7 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   const token = createCorrelationToken(claimed.user.id, config.correlationSecret);
   const client = {
     getReports: async () => ({ reports: [{ report_id: 397771, webinar_id: 32439, date_start: config.scheduledStart, date_end: config.scheduledEnd }] }),
-    getReport: async () => ({ report_id: 397771, webinar_id: 32439, visitors: [{ visitor_id: 5001, utm: `utm_content=${token}`, date_start: '2026-09-15T20:02:00Z', date_end: '2026-09-15T20:32:00Z', buttons_info: [{ type: 'button', show_number: 2, status: 'clicked' }], comments: [{ text: 'discard me' }] }] }),
+    getReport: async () => ({ report_id: 397771, webinar_id: 32439, date_start: config.scheduledStart, date_end: config.scheduledEnd, visitors: [{ visitor_id: 5001, utm: `utm_content=${token}`, date_start: '2026-09-15T20:02:00Z', date_end: '2026-09-15T20:32:00Z', buttons_info: [{ type: 'button', show_number: 2, status: 'clicked' }], comments: [{ text: 'discard me' }] }] }),
   };
   const now = () => new Date(config.scheduledEnd);
   const [a, b] = await Promise.all([
@@ -64,12 +64,17 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   const visitors = await storeB.listProviderVisitors();
   assert.equal(visitors.length, 1);
   assert.equal(visitors[0].correlationStatus, 'matched');
+  assert.equal(visitors[0].signals.presenceSeconds, 1800);
+  assert.equal(visitors[0].signals.effectivePresenceSeconds, 1800);
+  assert.equal(visitors[0].signals.effectivePresenceRatio, 0.5);
   assert.equal(JSON.stringify(visitors).includes(token), false);
   assert.equal(JSON.stringify(visitors).includes('discard me'), false);
   const events = await storeB.listUserEvents(claimed.user.id);
   assert.equal(events.filter((event) => event.eventType === 'webinarstars_cta_clicked').length, 1);
   assert.equal(events.some((event) => /^watched_/.test(event.eventType)), false);
-  assert.equal((await storeC.listProviderSegmentDecisions()).length,1);
+  const firstDecisions=await storeC.listProviderSegmentDecisions();
+  assert.equal(firstDecisions.length,1);
+  assert.equal(firstDecisions[0].signals.effectivePresenceSeconds,1800);
   assert.equal((await storeC.listProviderFollowUps()).length,1);
   const sent=[]; const deliveryNow=()=>new Date('2026-09-15T21:21:00Z');
   const applicationUrlProvider=createMenApplicationUrlProvider({signingSecret:'pg-application-signing',applicationReference:'https://provider.invalid/application',now:deliveryNow});
@@ -89,7 +94,8 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
     initialUrls[name]=(await createWebinarStarsExperienceProvider({store:storeB,config}).createExperienceUrl({user:entry.user})).url;
   }
   const providerSignal=(presenceSeconds,targetCtaSeen=false,targetCtaClicked=false)=>({presenceSeconds,
-    presenceRatio:Math.min(1,presenceSeconds/3600),targetCtaSeen,targetCtaClicked,buttons:[]});
+    presenceRatio:Math.min(1,presenceSeconds/3600),effectivePresenceSeconds:presenceSeconds,
+    effectivePresenceRatio:Math.min(1,presenceSeconds/3600),targetCtaSeen,targetCtaClicked,buttons:[]});
   for (const [name,signals] of Object.entries({B:providerSignal(3299),C:providerSignal(3300),D:providerSignal(3400,true),E:providerSignal(3400,true,true),
     F:providerSignal(3400,true,true),G:providerSignal(3400,true,true),STOP:providerSignal(3400,true,true),DELETE:providerSignal(3400,true,true)})) {
     await storeB.ingestProviderVisitor({provider:'webinarstars',sessionId:visitors[0].sessionId,reportId:'397771',visitorId:`synthetic-${name}`,

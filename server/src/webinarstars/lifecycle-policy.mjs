@@ -28,9 +28,10 @@ export function decideWebinarStarsSegment({ visitorSignals = null, applicationSu
   if (suppressionReason) return WEBINARSTARS_SEGMENTS.SUPPRESSED;
   if (applicationSubmitted) return WEBINARSTARS_SEGMENTS.APPLICATION_SUBMITTED;
   if (!visitorSignals) return WEBINARSTARS_SEGMENTS.NO_SHOW;
+  if (!Number.isFinite(visitorSignals.effectivePresenceSeconds)) throw new Error('effective_presence_unavailable');
   if (visitorSignals.targetCtaClicked) return WEBINARSTARS_SEGMENTS.CTA_CLICKED_NO_APPLICATION;
   if (visitorSignals.targetCtaSeen) return WEBINARSTARS_SEGMENTS.CTA_SEEN_NOT_CLICKED;
-  return Number(visitorSignals.presenceSeconds ?? 0) >= offerBoundarySeconds
+  return visitorSignals.effectivePresenceSeconds >= offerBoundarySeconds
     ? WEBINARSTARS_SEGMENTS.REACHED_OFFER_CTA_UNSEEN
     : WEBINARSTARS_SEGMENTS.LEFT_BEFORE_OFFER;
 }

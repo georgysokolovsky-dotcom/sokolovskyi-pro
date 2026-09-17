@@ -44,6 +44,7 @@ export function loadRuntimeConfig(env = process.env) {
       'DATABASE_URL', 'WEBINARSTARS_API_BASE_URL', 'WEBINARSTARS_API_TOKEN',
       'WEBINARSTARS_CORRELATION_SECRET', 'WEBINARSTARS_WEBINAR_ID',
       'WEBINARSTARS_REGISTRATION_URL', 'WEBINARSTARS_SCHEDULED_START', 'WEBINARSTARS_SCHEDULED_END',
+      'WEBINARSTARS_TIME_ZONE',
     ]);
     if (storeMode !== 'postgres') throw new Error('FUNNEL_STORE=postgres is required for WebinarStars experience provider');
   }
@@ -87,6 +88,17 @@ export function loadRuntimeConfig(env = process.env) {
 
   let webinarStars = null;
   if (webinarExperienceProvider === 'webinarstars') {
+    const timeZone = env.WEBINARSTARS_TIME_ZONE.trim();
+    if (!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+$/.test(timeZone) || timeZone.startsWith('Etc/')) {
+      throw new Error('WEBINARSTARS_TIME_ZONE must be a valid IANA time zone');
+    }
+    try { new Intl.DateTimeFormat('en', { timeZone }); }
+    catch { throw new Error('WEBINARSTARS_TIME_ZONE must be a valid IANA time zone'); }
+    for (const name of ['WEBINARSTARS_SCHEDULED_START', 'WEBINARSTARS_SCHEDULED_END']) {
+      if (!/T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/i.test(env[name])) {
+        throw new Error(`${name} must include an explicit UTC offset`);
+      }
+    }
     const scheduledStart = new Date(env.WEBINARSTARS_SCHEDULED_START);
     const scheduledEnd = new Date(env.WEBINARSTARS_SCHEDULED_END);
     if (!Number.isFinite(scheduledStart.getTime()) || !Number.isFinite(scheduledEnd.getTime()) || scheduledEnd <= scheduledStart) throw new Error('WebinarStars scheduled start/end must be valid and increasing');
@@ -96,6 +108,7 @@ export function loadRuntimeConfig(env = process.env) {
       correlationSecret: env.WEBINARSTARS_CORRELATION_SECRET,
       webinarId: String(env.WEBINARSTARS_WEBINAR_ID),
       registrationUrl: requireHttps(env.WEBINARSTARS_REGISTRATION_URL, 'WEBINARSTARS_REGISTRATION_URL'),
+      timeZone,
       scheduledStart: scheduledStart.toISOString(), scheduledEnd: scheduledEnd.toISOString(),
       pollOffsetsMinutes: webinarStarsPollOffsetsMinutes,
       targetCtaShowNumbers: webinarStarsTargetCtaShowNumbers,

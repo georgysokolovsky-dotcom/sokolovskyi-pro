@@ -33,6 +33,7 @@ test('WebinarStars experience is separate from media and fails closed', () => {
     WEBINARSTARS_CORRELATION_SECRET: 'correlation-secret',
     WEBINARSTARS_WEBINAR_ID: '32439',
     WEBINARSTARS_REGISTRATION_URL: 'https://provider.invalid/register',
+    WEBINARSTARS_TIME_ZONE: 'Europe/Kiev',
     WEBINARSTARS_SCHEDULED_START: '2026-09-15T20:00:00Z',
     WEBINARSTARS_SCHEDULED_END: '2026-09-15T21:00:00Z',
   };
@@ -40,6 +41,10 @@ test('WebinarStars experience is separate from media and fails closed', () => {
   assert.equal(config.webinarExperienceProvider, 'webinarstars');
   assert.equal(config.webinarMediaProvider, 'local');
   assert.deepEqual(config.webinarStars.pollOffsetsMinutes, [0, 1, 3, 5, 10, 15]);
+  assert.equal(config.webinarStars.timeZone, 'Europe/Kiev');
+  assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_TIME_ZONE: '' }), /WEBINARSTARS_TIME_ZONE/);
+  assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_TIME_ZONE: '+03:00' }), /IANA time zone/);
+  assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_SCHEDULED_START: '2026-09-15T20:00:00' }), /explicit UTC offset/);
   assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_REGISTRATION_URL: 'https://provider.invalid/register?token=bad' }), /must not contain/);
   assert.throws(() => loadRuntimeConfig({ ...base, WEBINARSTARS_SCHEDULED_END: '2026-09-15T19:00:00Z' }), /valid and increasing/);
 });
@@ -87,6 +92,7 @@ test('staging fails closed unless PostgreSQL, official Bot API and HTTPS URLs ar
     WEBINARSTARS_API_BASE_URL: 'https://provider.invalid', WEBINARSTARS_API_TOKEN: 'test-api',
     WEBINARSTARS_CORRELATION_SECRET: 'test-correlation', WEBINARSTARS_WEBINAR_ID: '31195',
     WEBINARSTARS_REGISTRATION_URL: 'https://provider.invalid/register',
+    WEBINARSTARS_TIME_ZONE: 'Europe/Kiev',
     WEBINARSTARS_SCHEDULED_START: '2026-09-17T16:00:00Z', WEBINARSTARS_SCHEDULED_END: '2026-09-17T17:31:00Z',
   };
   assert.throws(() => loadRuntimeConfig(provider), /STAGING_ALLOWED_TELEGRAM_USER_ID/);

@@ -61,7 +61,7 @@ Runner применяет только ещё не записанные SQL-фа
 
 `WEBINAR_EXPERIENCE_PROVIDER=internal|webinarstars` отделён от `WEBINAR_MEDIA_PROVIDER=local|mux`. При `internal` продолжают работать MEN page, local/Mux playback и server-derived watched ranges. При `webinarstars` Telegram invite ведёт на configured scheduled WebinarStars URL; internal page и оба media provider остаются резервным путём.
 
-WebinarStars включается fail-closed только с PostgreSQL и полным server-side config: API base/token, correlation secret, webinar ID, registration URL, scheduled start/end и poll policy. Значения не hardcoded. Default — `internal`, поэтому migration и код сами по себе не переключают traffic.
+WebinarStars включается fail-closed только с PostgreSQL и полным server-side config: API base/token, correlation secret, webinar ID, registration URL, `WEBINARSTARS_TIME_ZONE` (IANA, для 31195 — `Europe/Kiev`), scheduled start/end с явным UTC offset и poll policy. Default — `internal`, поэтому migration и код сами по себе не переключают traffic.
 
 Correlation contract `webinarstars-utm-content-v1`:
 
@@ -72,15 +72,15 @@ raw token → отдельный HMAC lookup key → provider_correlations
 
 Token стабилен для повторного открытия одного funnel entry, не содержит Telegram ID, PII или raw UUID. Outbound URL добавляет только `utm_source=telegram`, `utm_medium=bot`, `utm_campaign=men_webinar_v1`, `utm_content=<token>`; `men_ref` по умолчанию отсутствует.
 
-Тот же ручной persistent scheduler запускает WebinarStars ingestion после scheduled end по смещениям `+0/+1/+3/+5/+10/+15` минут. Он использует `get_reports` для строгого выбора report по webinar ID и scheduled start/end, затем authoritative `get_report`. Webhook и публичный WebinarStars endpoint отсутствуют. Lease и PostgreSQL row lock защищают от двух concurrent executors; после последней неудачной попытки session получает `finalization_pending` и допускает явный operator retry.
+Тот же ручной persistent scheduler запускает WebinarStars ingestion после scheduled end по смещениям `+0/+1/+3/+5/+10/+15` минут. Его UTC poll time вычисляется из явного scheduled end. Он интерпретирует provider local datetime без offset только в configured IANA timezone (с учётом DST), затем использует `get_reports` для точного выбора report по webinar ID и scheduled start/end и сверяет те же поля в authoritative `get_report`. API-поле с числовым timezone offset не является вторым timezone contract. Неоднозначное/несуществующее локальное время не сопоставляется. Webhook и публичный WebinarStars endpoint отсутствуют. Lease и PostgreSQL row lock защищают от двух concurrent executors; после последней неудачной попытки session получает `finalization_pending` и допускает явный operator retry.
 
 Отдельный безопасный запуск только provider ingestion: `npm --prefix server run webinarstars:sync`. Terminal session можно вернуть в очередь командой `npm --prefix server run webinarstars:sync -- --retry <session_uuid>`; это не запускает Telegram warming.
 
 Visitor сопоставляется только по HMAC от `utm_content`. Отсутствующий или неизвестный token даёт `unmatched`; name/phone/email не используются. Идемпотентность строится по `(provider, report_id, visitor_id)`.
 
-Нормализуются provider signals: attendance, начало/конец и секунды присутствия, capped ratio относительно scheduled session, button `type/show_number/status`, наличие и количество комментариев. `presence_seconds` означает присутствие в room/page, не video consumption, и никогда не создаёт `watched_25/50/75/90/100`. Canonical internal `cta_clicked` не создаётся. Для production webinar `31195` sales CTA задаются конфигом `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS=1,2`; граница оффера — `WEBINARSTARS_OFFER_BOUNDARY_SECONDS=3300`.
+Нормализуются provider signals: attendance, начало/конец и raw `presence_seconds`/`presence_ratio` для всего интервала в room/page, button `type/show_number/status`, наличие и количество комментариев. Raw интервал может включать waiting room и не означает video consumption. Для новых segment decisions отдельно вычисляются `effectivePresenceSeconds = max(0, min(visitor_end, scheduled_end) - max(visitor_start, scheduled_start))` и capped `effectivePresenceRatio` относительно scheduled duration. Только effective seconds сравниваются с границей оффера `WEBINARSTARS_OFFER_BOUNDARY_SECONDS=3300`; это также не watched-video time. Оба значения хранятся в существующем JSONB signals/snapshot без новой migration. Старые decisions не переклассифицируются. Provider signals никогда не создают `watched_25/50/75/90/100` или canonical internal `cta_clicked`. Для webinar `31195` sales CTA задаются конфигом `WEBINARSTARS_TARGET_CTA_SHOW_NUMBERS=1,2`.
 
-Production contract `31195`: ежедневно 19:00 Europe/Kiev, 91 минут, scheduled end 20:31, registration URL `https://efir.webinar-stars.com/webinar/5071c97bc4cfde5/`, CTA show numbers `1,2`. После finalized report lifecycle создаёт один snapshot с приоритетом `SUPPRESSED > APPLICATION_SUBMITTED > CTA_CLICKED_NO_APPLICATION > CTA_SEEN_NOT_CLICKED > REACHED_OFFER_CTA_UNSEEN / LEFT_BEFORE_OFFER > NO_SHOW`. Граница B/C — 3300 секунд provider presence.
+Webinar `31195` contract: 19:00 Europe/Kiev, 91 минут, scheduled end 20:31, registration URL `https://efir.webinar-stars.com/webinar/5071c97bc4cfde5/`, CTA show numbers `1,2`. После finalized report lifecycle создаёт один snapshot с приоритетом `SUPPRESSED > APPLICATION_SUBMITTED > CTA_CLICKED_NO_APPLICATION > CTA_SEEN_NOT_CLICKED > REACHED_OFFER_CTA_UNSEEN / LEFT_BEFORE_OFFER > NO_SHOW`. Граница B/C — 3300 секунд effective presence.
 
 Follow-up планируется от времени финализации: `NO_SHOW +30m`, `LEFT_BEFORE_OFFER +60m`, `REACHED_OFFER_CTA_UNSEEN +60m`, `CTA_SEEN_NOT_CLICKED +60m`, `CTA_CLICKED_NO_APPLICATION +20m`; F/G не планируются. Перед delivery повторно проверяются application, sold, stop, deletion и другие suppression states. A/B получают тот же scheduled URL с заново вычисленным тем же stable token.
 
@@ -91,7 +91,7 @@ Follow-up планируется от времени финализации: `NO
 Read-only parser check существующего report выполняется так:
 
 ```bash
-WEBINARSTARS_API_BASE_URL=https://efir.webinar-stars.com npm --prefix server run staging:webinarstars-verify -- 397771
+WEBINARSTARS_API_BASE_URL=https://efir.webinar-stars.com WEBINARSTARS_TIME_ZONE=Europe/Kiev npm --prefix server run staging:webinarstars-verify -- 397771
 ```
 
 Команда читает token из ignored environment и выводит только report ID, presence полей, visitor count, нормализованные button statuses и comment counts.

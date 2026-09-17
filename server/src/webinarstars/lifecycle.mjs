@@ -24,6 +24,8 @@ export function createWebinarStarsLifecycle({ store, config, now = () => new Dat
         segment, decidedAt: finalizedAt,
         signals: { visitorMatched: Boolean(visitor), presenceSeconds: visitor?.signals?.presenceSeconds ?? null,
           presenceRatioCapped: visitor?.signals?.presenceRatio ?? null, targetCtaSeen: visitor?.signals?.targetCtaSeen ?? false,
+          effectivePresenceSeconds: visitor?.signals?.effectivePresenceSeconds ?? null,
+          effectivePresenceRatio: visitor?.signals?.effectivePresenceRatio ?? null,
           targetCtaClicked: visitor?.signals?.targetCtaClicked ?? false, suppressionReason },
       });
       if (saved.duplicate) result.duplicates += 1; else result.decisions += 1;

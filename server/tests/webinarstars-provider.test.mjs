@@ -5,7 +5,8 @@ import { localFixture } from '../src/data/local-fixture.mjs';
 import { buildWebinarStarsUrl, createCorrelationHmac, createCorrelationToken, parseCorrelationToken } from '../src/webinarstars/correlation.mjs';
 import { createWebinarStarsClient, WebinarStarsApiError } from '../src/webinarstars/client.mjs';
 import { createWebinarStarsExperienceProvider } from '../src/webinarstars/experience-provider.mjs';
-import { classifyVisitor, normalizeReport, normalizeReports, selectReportForSession } from '../src/webinarstars/normalize.mjs';
+import { createWebinarStarsLifecycle } from '../src/webinarstars/lifecycle.mjs';
+import { classifyVisitor, normalizeProviderTimestamp, normalizeReport, normalizeReports, selectReportForSession } from '../src/webinarstars/normalize.mjs';
 import { createWebinarStarsSyncScheduler } from '../src/webinarstars/sync-scheduler.mjs';
 
 const secret = 'offline-webinarstars-correlation-secret';
@@ -13,6 +14,7 @@ const start = '2026-09-15T20:00:00.000Z';
 const end = '2026-09-15T21:00:00.000Z';
 const config = Object.freeze({
   correlationSecret: secret, webinarId: '32439', registrationUrl: 'https://example.invalid/register',
+  timeZone: 'Europe/Kiev',
   scheduledStart: start, scheduledEnd: end, pollOffsetsMinutes: [0, 1, 3, 5, 10, 15],
   targetCtaShowNumbers: ['1', '2'], offerBoundarySeconds: 3300,
 });
@@ -91,6 +93,31 @@ test('report normalization, strict session selection and provider semantics are 
   assert.equal('watchedVideoSeconds' in signals, false);
 });
 
+test('WebinarStars local datetimes use the configured IANA zone across summer and winter', () => {
+  const reports = normalizeReports({ reports: [{
+    report_id: 31195, webinar_id: 31195, timezone: '3.0',
+    date_start: '2026-09-17 19:00:00', date_end: '2026-09-17 20:31:00',
+  }] }, { timeZone: 'Europe/Kiev' });
+  assert.equal(reports[0].scheduledStart, '2026-09-17T16:00:00.000Z');
+  assert.equal(reports[0].scheduledEnd, '2026-09-17T17:31:00.000Z');
+  assert.equal(selectReportForSession(reports, { webinarId: '31195', scheduledStart: '2026-09-17T16:00:00Z', scheduledEnd: '2026-09-17T17:31:00Z' })?.reportId, '31195');
+  assert.equal(selectReportForSession(reports, { webinarId: '31195', scheduledStart: '2026-09-17T16:01:00Z', scheduledEnd: '2026-09-17T17:31:00Z' }), null);
+  const report = normalizeReport({ report_id: 31195, webinar_id: 31195, timezone: '3.0', visitors: [{
+    visitor_id: 1, date_start: '2026-09-17 18:19:40', date_end: '2026-09-17 19:03:57',
+  }] }, { timeZone: 'Europe/Kiev' });
+  assert.equal(report.visitors[0].presenceStarted, '2026-09-17T15:19:40.000Z');
+  assert.equal(report.visitors[0].presenceEnded, '2026-09-17T16:03:57.000Z');
+  assert.equal(report.visitors[0].presenceSeconds, 2657);
+  const winter = normalizeReports({ reports: [{ report_id: 2, webinar_id: 31195, timezone: '2.0',
+    date_start: '2026-01-15 19:00:00', date_end: '2026-01-15 20:31:00' }] }, { timeZone: 'Europe/Kiev' });
+  assert.equal(winter[0].scheduledStart, '2026-01-15T17:00:00.000Z');
+  assert.equal(winter[0].scheduledEnd, '2026-01-15T18:31:00.000Z');
+  assert.equal(normalizeProviderTimestamp('2026-03-29 03:30:00', 'Europe/Kiev'), null);
+  assert.equal(normalizeProviderTimestamp('2026-10-25 03:30:00', 'Europe/Kiev'), null);
+  assert.equal(normalizeProviderTimestamp('2026-02-30 19:00:00', 'Europe/Kiev'), null);
+  assert.equal(normalizeReports({ reports: [{ report_id: 1, webinar_id: 31195, date_start: '2026-09-17 19:00:00', date_end: '2026-09-17 20:31:00' }] })[0].scheduledStart, null);
+});
+
 test('persistent sync correlates visitor, is idempotent and never creates internal watch milestones', async () => {
   const clock = { value: new Date(end) };
   const store = makeStore(() => clock.value);
@@ -99,7 +126,7 @@ test('persistent sync correlates visitor, is idempotent and never creates intern
   const token = createCorrelationToken(user.id, secret);
   const client = {
     getReports: async () => ({ reports: [{ report_id: 397771, webinar_id: 32439, date_start: start, date_end: end }] }),
-    getReport: async () => ({ report_id: 397771, webinar_id: 32439, visitors: [{ visitor_id: 77, utm: `utm_source=telegram&utm_content=${token}`, date_start: '2026-09-15T20:00:00Z', date_end: '2026-09-15T20:30:00Z', buttons_info: [{ show_number: 1, type: 'button', status: 'seen' }], comments: [] }] }),
+    getReport: async () => ({ report_id: 397771, webinar_id: 32439, date_start: start, date_end: end, visitors: [{ visitor_id: 77, utm: `utm_source=telegram&utm_content=${token}`, date_start: '2026-09-15T20:00:00Z', date_end: '2026-09-15T20:30:00Z', buttons_info: [{ show_number: 1, type: 'button', status: 'seen' }], comments: [] }] }),
   };
   const scheduler = createWebinarStarsSyncScheduler({ store, client, config, now: () => clock.value, workerId: 'worker-a' });
   const first = await scheduler.run();
@@ -113,6 +140,59 @@ test('persistent sync correlates visitor, is idempotent and never creates intern
   const persisted = JSON.stringify(store.listProviderVisitors());
   assert.equal(persisted.includes(token), false);
   assert.equal(persisted.includes('utm_content'), false);
+});
+
+test('summer provider report preserves raw waiting-room presence but segments on session overlap', async () => {
+  const summer = { ...config, webinarId: '31195', scheduledStart: '2026-09-17T16:00:00.000Z',
+    scheduledEnd: '2026-09-17T17:31:00.000Z' };
+  const clock = { value: new Date(summer.scheduledEnd) };
+  const store = makeStore(() => clock.value);
+  const user = store.createUser({ funnelId: localFixture.funnel.id, funnelEntryTouch: { source: 'test' } });
+  await createWebinarStarsExperienceProvider({ store, config: summer }).createExperienceUrl({ user });
+  const session = [...store.providerSyncSessions.values()][0];
+  assert.equal(session.nextPollAt, summer.scheduledEnd);
+  const token = createCorrelationToken(user.id, secret);
+  const client = {
+    getReports: async () => ({ reports: [{ report_id: 398336, webinar_id: 31195, timezone: '3.0',
+      date_start: '2026-09-17 19:00:00', date_end: '2026-09-17 20:31:00' }] }),
+    getReport: async () => ({ report_id: 398336, webinar_id: 31195, timezone: '3.0',
+      date_start: '2026-09-17 19:00:00', date_end: '2026-09-17 20:31:00', visitors: [{
+        visitor_id: 1, utm: `utm_content=${token}`, date_start: '2026-09-17 18:20:00', date_end: '2026-09-17 19:20:00',
+        buttons_info: [{ show_number: 1, status: 'unseen' }, { show_number: 2, status: 'unseen' }],
+      }] }),
+  };
+  const scheduler = createWebinarStarsSyncScheduler({ store, client, config: summer,
+    lifecycle: createWebinarStarsLifecycle({ store, config: summer }), now: () => clock.value });
+  assert.equal((await scheduler.run()).completed, 1);
+  const visitor = store.listProviderVisitors()[0];
+  assert.equal(visitor.signals.presenceSeconds, 3600);
+  assert.equal(visitor.signals.effectivePresenceSeconds, 1200);
+  assert.equal(visitor.signals.effectivePresenceRatio, 1200 / 5460);
+  const decision = store.listProviderSegmentDecisions()[0];
+  assert.equal(decision.segment, 'LEFT_BEFORE_OFFER');
+  assert.equal(decision.signals.presenceSeconds, 3600);
+  assert.equal(decision.signals.effectivePresenceSeconds, 1200);
+  assert.equal(store.listProviderFollowUps().length, 1);
+  assert.equal((await scheduler.run()).claimed, 0);
+});
+
+test('matched visitor with reversed provider timestamps cannot produce a decision or follow-up', async () => {
+  const clock = { value: new Date(end) };
+  const store = makeStore(() => clock.value);
+  const user = store.createUser({ funnelId: localFixture.funnel.id });
+  await createWebinarStarsExperienceProvider({ store, config }).createExperienceUrl({ user });
+  const token = createCorrelationToken(user.id, secret);
+  const client = {
+    getReports: async () => ({ reports: [{ report_id: 7, webinar_id: 32439, date_start: start, date_end: end }] }),
+    getReport: async () => ({ report_id: 7, webinar_id: 32439, date_start: start, date_end: end,
+      visitors: [{ visitor_id: 1, utm: `utm_content=${token}`, date_start: '2026-09-15T20:20:00Z', date_end: '2026-09-15T20:10:00Z' }] }),
+  };
+  const result = await createWebinarStarsSyncScheduler({ store, client, config,
+    lifecycle: createWebinarStarsLifecycle({ store, config }), now: () => clock.value }).run();
+  assert.equal(result.completed, 0);
+  assert.equal(result.finalizationPending, 1);
+  assert.equal(store.listProviderSegmentDecisions().length, 0);
+  assert.equal(store.listProviderFollowUps().length, 0);
 });
 
 test('unknown correlation is fail-closed and retries follow +0/+1/+3/+5/+10/+15', async () => {
@@ -136,7 +216,7 @@ test('unknown correlation is fail-closed and retries follow +0/+1/+3/+5/+10/+15'
   const unmatchedStore = makeStore(() => retryClock.value);
   const unmatchedUser = unmatchedStore.createUser({ funnelId: localFixture.funnel.id, funnelEntryTouch: { source: 'test' } });
   await createWebinarStarsExperienceProvider({ store: unmatchedStore, config }).createExperienceUrl({ user: unmatchedUser });
-  const unmatchedClient = { getReports: async () => ({ reports: [{ report_id: 9, webinar_id: 32439, date_start: start, date_end: end }] }), getReport: async () => ({ report_id: 9, webinar_id: 32439, visitors: [{ visitor_id: 8, utm: 'utm_content=bbbbbbbbbbbbbbbb' }] }) };
+  const unmatchedClient = { getReports: async () => ({ reports: [{ report_id: 9, webinar_id: 32439, date_start: start, date_end: end }] }), getReport: async () => ({ report_id: 9, webinar_id: 32439, date_start: start, date_end: end, visitors: [{ visitor_id: 8, utm: 'utm_content=bbbbbbbbbbbbbbbb' }] }) };
   const result = await createWebinarStarsSyncScheduler({ store: unmatchedStore, client: unmatchedClient, config, now: () => retryClock.value, workerId: 'worker-unmatched' }).run();
   assert.equal(result.unmatched, 1);
   assert.equal(unmatchedStore.listProviderVisitors()[0].correlationStatus, 'unmatched');

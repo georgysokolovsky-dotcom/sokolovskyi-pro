@@ -17,6 +17,7 @@ const config = Object.freeze({ correlationSecret:'test-lifecycle-secret',webinar
 const signingSecret='webinarstars-application-signing-test';
 
 const signal = (presenceSeconds, statuses=[]) => ({ presenceSeconds,presenceRatio:Math.min(1,presenceSeconds/5460),
+  effectivePresenceSeconds:presenceSeconds,effectivePresenceRatio:Math.min(1,presenceSeconds/5460),
   targetCtaSeen:statuses.some((value)=>['seen','clicked'].includes(value)),targetCtaClicked:statuses.includes('clicked'),buttons:[] });
 
 test('segment precedence, 55-minute boundary and both configured CTA signals', () => {
@@ -59,6 +60,8 @@ test('provider classification targets CTA 1 and CTA 2, clicked overrides seen an
     buttons:[{showNumber:'1',status:'seen'},{showNumber:'2',status:'clicked'},{showNumber:'3',status:'clicked'}]};
   const classified=classifyVisitor(visitor,session,config);
   assert.equal(classified.presenceRatio,1);
+  assert.equal(classified.effectivePresenceSeconds,5460);
+  assert.equal(classified.effectivePresenceRatio,1);
   assert.equal(classified.targetCtaSeen,true);
   assert.equal(classified.targetCtaClicked,true);
   assert.equal('watchedSeconds' in classified,false);
@@ -69,6 +72,40 @@ test('provider classification targets CTA 1 and CTA 2, clicked overrides seen an
       assert.equal(one.targetCtaClicked,status==='clicked');
     }
   }
+});
+
+test('waiting-room time never advances the 3300-second offer boundary', async () => {
+  const { classifyVisitor } = await import('../src/webinarstars/normalize.mjs');
+  const session={scheduledStart:config.scheduledStart,scheduledEnd:config.scheduledEnd};
+  const at=(minutes)=>new Date(new Date(config.scheduledStart).getTime()+minutes*60_000).toISOString();
+  const classify=(startMinutes,endMinutes)=>{
+    const start=at(startMinutes),end=at(endMinutes);
+    const raw=Math.floor((new Date(end)-new Date(start))/1000);
+    return classifyVisitor({presenceStarted:start,presenceEnded:end,presenceSeconds:raw,buttons:[],commentCount:0},session,config);
+  };
+  const cases=[
+    [-40,5,2700,300,'LEFT_BEFORE_OFFER'],
+    [-40,20,3600,1200,'LEFT_BEFORE_OFFER'],
+    [0,55,3300,3300,'REACHED_OFFER_CTA_UNSEEN'],
+    [10,20,600,600,'LEFT_BEFORE_OFFER'],
+    [-40,56,5760,3360,'REACHED_OFFER_CTA_UNSEEN'],
+    [80,110,1800,660,'LEFT_BEFORE_OFFER'],
+    [-70,-10,3600,0,'LEFT_BEFORE_OFFER'],
+  ];
+  for (const [start,end,raw,effective,segment] of cases) {
+    const result=classify(start,end);
+    assert.equal(result.presenceSeconds,raw);
+    assert.equal(result.effectivePresenceSeconds,effective);
+    assert.equal(result.effectivePresenceRatio,Math.min(1,effective/5460));
+    assert.equal(decideWebinarStarsSegment({visitorSignals:result}),segment);
+  }
+  const reversed=classifyVisitor({presenceStarted:at(10),presenceEnded:at(5),presenceSeconds:null,buttons:[]},session,config);
+  assert.equal(reversed.effectivePresenceSeconds,null);
+  assert.equal(reversed.timingValid,false);
+  assert.throws(()=>decideWebinarStarsSegment({visitorSignals:reversed}),/effective_presence_unavailable/);
+  const invalid=classifyVisitor({presenceStarted:null,presenceEnded:at(5),presenceSeconds:null,buttons:[]},session,config);
+  assert.equal(invalid.timingValid,false);
+  assert.throws(()=>decideWebinarStarsSegment({visitorSignals:invalid}),/effective_presence_unavailable/);
 });
 
 test('A-G staging lifecycle delivers every approved template once with bound URLs', async () => {

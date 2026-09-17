@@ -3,13 +3,14 @@ import { normalizeReport, normalizeReports } from '../src/webinarstars/normalize
 
 const apiToken = process.env.WEBINARSTARS_API_TOKEN;
 const baseUrl = process.env.WEBINARSTARS_API_BASE_URL;
+const timeZone = process.env.WEBINARSTARS_TIME_ZONE;
 const reportId = process.argv[2];
-if (!apiToken || !baseUrl || !/^\d+$/.test(reportId ?? '')) throw new Error('WEBINARSTARS_API_TOKEN, WEBINARSTARS_API_BASE_URL and numeric report id are required');
+if (!apiToken || !baseUrl || !timeZone || !/^\d+$/.test(reportId ?? '')) throw new Error('WEBINARSTARS_API_TOKEN, WEBINARSTARS_API_BASE_URL, WEBINARSTARS_TIME_ZONE and numeric report id are required');
 
 const client = createWebinarStarsClient({ baseUrl, apiToken });
 const [payload, reportsPayload] = await Promise.all([client.getReport(reportId), client.getReports()]);
-const report = normalizeReport(payload);
-const discovery = normalizeReports(reportsPayload).find((item) => item.reportId === reportId) ?? null;
+const report = normalizeReport(payload, { timeZone });
+const discovery = normalizeReports(reportsPayload, { timeZone }).find((item) => item.reportId === reportId) ?? null;
 function schema(value, depth = 0) {
   if (depth > 3) return Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
   if (Array.isArray(value)) return { type: 'array', length: value.length, item: value.length ? schema(value[0], depth + 1) : null };
