@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { acceptedWatchSegment, summarizeWebinarProgress } from '../webinar/progress.mjs';
+import { INTERNAL_PRE_CONVERSION_RULES } from '../scheduler/lifecycle-purpose.mjs';
 
 const { Pool } = pg;
 const iso = (value) => value instanceof Date ? value.toISOString() : value;
@@ -489,7 +490,7 @@ export class PostgresStore {
         where id=$1 and status='processing' and lease_owner=$2 returning *`,
       [operationId,workerId,status,provider,providerMessageId,errorCode,errorCategory,nextAttemptAt,cancellationReason])).rows[0];
       if (!row) return mapDeliveryOperation((await db.query('select * from delivery_operations where id=$1',[operationId])).rows[0]);
-      if (status==='suppressed') await db.query(`update delivery_operations set status='suppressed',last_error_code=$3,last_error_category='permanent',
+      if (status==='suppressed' && errorCode!=='application_submitted') await db.query(`update delivery_operations set status='suppressed',last_error_code=$3,last_error_category='permanent',
         next_attempt_at=now(),lease_owner=null,lease_started_at=null,lease_expires_at=null,
         scheduler_lease_owner=null,scheduler_lease_started_at=null,scheduler_lease_expires_at=null,updated_at=now()
         where funnel_id=$1 and user_id=$2 and status in ('scheduled','scheduler_processing','pending','retryable_failed')`,[row.funnel_id,row.user_id,errorCode]);
@@ -522,10 +523,17 @@ export class PostgresStore {
         row=(await db.query('select * from applications where funnel_id=$1 and idempotency_key=$2',[funnelId,idempotencyKey])).rows[0];
         return {application:mapApplication(row),duplicate:true};
       }
-      await this.addEvent({userId,funnelId,eventType:'application_submitted',metadata:{purpose:'application'},idempotencyKey:`application-event:${row.id}`},db);
-      await this.updateUser(userId,{leadStatus:'application_submitted'},db);
+      await db.query(`update delivery_operations set status='cancelled',cancellation_reason='application_submitted',
+        executed_at=now(),lease_owner=null,lease_started_at=null,lease_expires_at=null,
+        scheduler_lease_owner=null,scheduler_lease_started_at=null,scheduler_lease_expires_at=null,updated_at=now()
+        where user_id=$1 and funnel_id=$2 and message_type='warming'
+          and (descriptor->>'stopAfterApplication'='true' or descriptor->>'ruleName'=any($3::text[]))
+          and (status in ('scheduled','scheduler_processing','pending','retryable_failed')
+            or (status='processing' and request_started_at is null))`,[userId,funnelId,INTERNAL_PRE_CONVERSION_RULES]);
       await db.query(`update provider_follow_ups set status='cancelled',cancellation_reason='application_submitted',updated_at=now()
         where user_id=$1 and status='scheduled'`,[userId]);
+      await this.addEvent({userId,funnelId,eventType:'application_submitted',metadata:{purpose:'application'},idempotencyKey:`application-event:${row.id}`},db);
+      await this.updateUser(userId,{leadStatus:'application_submitted'},db);
       return {application:mapApplication(row),duplicate:false};
     });
   }

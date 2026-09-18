@@ -12,6 +12,7 @@ import { buildTelegramDeepLink } from '../telegram/deep-links.mjs';
 import { createDevTelegramTransport } from '../telegram/transport.mjs';
 import { createDeliveryRecoveryExecutor } from '../delivery/recovery-executor.mjs';
 import { cancellationReasonForRule, createWarmingScheduler } from '../scheduler/warming-scheduler.mjs';
+import { isInternalWebinarWarmingOperation } from '../scheduler/lifecycle-purpose.mjs';
 import { WEBINAR_PLAYER_ACTIONS } from '../webinar/progress.mjs';
 import { createLocalPlaybackSourceProvider } from '../webinar/providers/local-playback-source.mjs';
 import { createInternalExperienceProvider } from '../webinarstars/experience-provider.mjs';
@@ -372,6 +373,7 @@ export function createMenWebinarFlow({
 
   async function validateDeliveryOperation(operation) {
     if (operation.messageType !== 'warming') return null;
+    if (experienceProvider.name === 'webinarstars' && isInternalWebinarWarmingOperation(operation)) return { cancellationReason: 'webinarstars_legacy_warming' };
     const user = await store.getUser(operation.userId);
     if (!user?.funnelEntryTouch) return { cancellationReason: 'funnel_entry_missing' };
     const rule = (await store.listAutomationRules(operation.funnelId)).find((item) => item.id === operation.warmingRuleId);
@@ -396,6 +398,7 @@ export function createMenWebinarFlow({
 
   const warmingScheduler = createWarmingScheduler({
     store, funnelId: FUNNEL_ID, policy: warmingPolicy,
+    allowInternalWarming: experienceProvider.name !== 'webinarstars',
     deliverOperation: (operationId) => recoveryExecutor.run({ operationId, limit: 1 }),
     ...schedulerOptions,
   });

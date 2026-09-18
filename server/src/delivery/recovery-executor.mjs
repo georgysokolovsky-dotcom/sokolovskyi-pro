@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { stopsAfterApplication } from '../scheduler/lifecycle-purpose.mjs';
 
 export const DELIVERY_STATES = Object.freeze([
   'pending', 'processing', 'delivered', 'retryable_failed',
@@ -35,7 +36,7 @@ function safeLog(logger, event, operation, details = {}) {
   });
 }
 
-export async function getDeliverySuppressionReason(store, userId, funnelId) {
+export async function getDeliverySuppressionReason(store, userId, funnelId, operation = null) {
   const user = await store.getUser(userId);
   const deletion = user ? await store.getDataDeletionRequest({ userId: user.id, funnelId }) : null;
   if (!user) return 'user_missing';
@@ -43,6 +44,7 @@ export async function getDeliverySuppressionReason(store, userId, funnelId) {
   if (['deleted', 'anonymized'].includes(user.leadStatus)) return user.leadStatus;
   if (user.promotionalEnabled === false || user.stopRequestedAt) return 'telegram_stop';
   if (user.deletionRequestedAt || deletion) return 'data_deletion_requested';
+  if (stopsAfterApplication(operation) && await store.getApplicationForUser(userId)) return 'application_submitted';
   return null;
 }
 
@@ -62,10 +64,10 @@ export function createDeliveryRecoveryExecutor({
   if (!store || !transport || typeof resolveMessage !== 'function') throw new Error('recovery dependencies are required');
 
   async function processClaimed(operation) {
-    const suppressionReason = await getDeliverySuppressionReason(store, operation.userId, operation.funnelId);
+    const suppressionReason = await getDeliverySuppressionReason(store, operation.userId, operation.funnelId, operation);
     if (suppressionReason) {
       const outcome = await buildOutcome?.({ operation, status: 'suppressed', suppressionReason });
-      const saved = await store.finishDeliveryOperation({ operationId: operation.id, workerId, status: 'suppressed', errorCode: suppressionReason, errorCategory: 'permanent', outcome });
+      const saved = await store.finishDeliveryOperation({ operationId: operation.id, workerId, status: 'suppressed', errorCode: suppressionReason, errorCategory: 'permanent', cancellationReason: suppressionReason, outcome });
       safeLog(logger, 'delivery_suppressed', saved, { resultCategory: suppressionReason });
       return saved;
     }
@@ -82,6 +84,13 @@ export function createDeliveryRecoveryExecutor({
     try {
       await recordAttempt?.(started);
       const message = await resolveMessage(started);
+      const lateSuppression = await getDeliverySuppressionReason(store, started.userId, started.funnelId, started);
+      if (lateSuppression) {
+        const outcome = await buildOutcome?.({ operation: started, status: 'suppressed', suppressionReason: lateSuppression });
+        const saved = await store.finishDeliveryOperation({ operationId: started.id, workerId, status: 'suppressed', errorCode: lateSuppression, errorCategory: 'permanent', cancellationReason: lateSuppression, outcome });
+        safeLog(logger, 'delivery_suppressed', saved, { resultCategory: lateSuppression });
+        return saved;
+      }
       const result = await transport.sendMessage({
         userId: started.userId,
         funnelId: started.funnelId,

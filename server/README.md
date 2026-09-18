@@ -61,6 +61,8 @@ Runner применяет только ещё не записанные SQL-фа
 
 `WEBINAR_EXPERIENCE_PROVIDER=internal|webinarstars` отделён от `WEBINAR_MEDIA_PROVIDER=local|mux`. При `internal` продолжают работать MEN page, local/Mux playback и server-derived watched ranges. При `webinarstars` Telegram invite ведёт на configured scheduled WebinarStars URL; internal page и оба media provider остаются резервным путём.
 
+Generic warming (`webinar_reminder_15m`, `webinar_reminder_3h`, `continue_watching_6h`, `application_follow_up_2h`) относится к internal webinar experience и не планируется при `webinarstars`. Старые операции из прежних запусков отменяются при обработке WebinarStars scheduler/recovery. В JSONB descriptor новых pre-conversion warming operations хранится `stopAfterApplication: true`; для старых записей действует совместимость по четырём именам правил. Заявка атомарно отменяет ещё не отправленные pre-conversion операции, а scheduler и recovery повторно проверяют её перед Telegram transport. Transactional messages после заявки не подавляются одним лишь `message_class=funnel_service`.
+
 WebinarStars включается fail-closed только с PostgreSQL и полным server-side config: API base/token, correlation secret, webinar ID, registration URL, `WEBINARSTARS_TIME_ZONE` (IANA, для 31195 — `Europe/Kiev`), scheduled start/end с явным UTC offset и poll policy. Default — `internal`, поэтому migration и код сами по себе не переключают traffic.
 
 Correlation contract `webinarstars-utm-content-v1`:

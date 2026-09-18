@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDeliverySuppressionReason } from '../delivery/recovery-executor.mjs';
+import { isInternalWebinarRule, isInternalWebinarWarmingOperation, ruleStopsAfterApplication } from './lifecycle-purpose.mjs';
 
 const progressEvents = new Set(['watched_50', 'watched_75', 'watched_90', 'watched_100', 'webinar_completed']);
 const applicationProgressEvents = new Set(['cta_clicked', 'application_started', 'application_submitted']);
@@ -20,14 +21,15 @@ function safeLog(logger, event, details) {
   if (typeof logger?.info === 'function') logger.info({ event, ...details });
 }
 
-export function createWarmingScheduler({ store, funnelId, policy, deliverOperation, now = () => new Date(), random = Math.random, workerId = `scheduler-${randomUUID()}`, leaseMs = 30_000, logger = null } = {}) {
+export function createWarmingScheduler({ store, funnelId, policy, deliverOperation, allowInternalWarming = true, now = () => new Date(), random = Math.random, workerId = `scheduler-${randomUUID()}`, leaseMs = 30_000, logger = null } = {}) {
   if (!store || !funnelId || !policy || typeof deliverOperation !== 'function') throw new Error('scheduler dependencies are required');
 
   async function scheduleForTrigger({ userId, triggerEvent, triggeredAt, dependsOnOperationId = null }) {
     const user = await store.getUser(userId);
     if (!user || user.funnelId !== funnelId || !user.funnelEntryTouch) return [];
     if (await getDeliverySuppressionReason(store, userId, funnelId)) return [];
-    const rules = (await store.listAutomationRules(funnelId)).filter((rule) => rule.triggerEvent === triggerEvent && rule.actionType === 'send_message');
+    const rules = (await store.listAutomationRules(funnelId)).filter((rule) => rule.triggerEvent === triggerEvent
+      && rule.actionType === 'send_message' && (allowInternalWarming || !isInternalWebinarRule(rule)));
     const telegram = await store.getTelegramUser(userId);
     const existing = (await store.listDeliveryOperations({ userId })).filter((operation) => operation.messageType === 'warming');
     const created = [];
@@ -49,6 +51,7 @@ export function createWarmingScheduler({ store, funnelId, policy, deliverOperati
         descriptor: {
           templateName: template.name, templateId: template.id, templateVersion: template.version,
           ruleName: rule.name, ruleVersion: rule.version, messageClass: rule.messageClass,
+          stopAfterApplication: ruleStopsAfterApplication(rule),
           triggeredAt: new Date(triggeredAt).toISOString(), jitterSeconds,
         },
       });
@@ -90,11 +93,16 @@ export function createWarmingScheduler({ store, funnelId, policy, deliverOperati
       const operation = await store.claimScheduledOperation({ funnelId, workerId, leaseMs, now: currentTime.toISOString() });
       if (!operation) break;
       result.claimed += 1;
-      const suppressionReason = await getDeliverySuppressionReason(store, operation.userId, funnelId);
+      const suppressionReason = await getDeliverySuppressionReason(store, operation.userId, funnelId, operation);
       if (suppressionReason) {
         await store.finishScheduledOperation({ operationId: operation.id, workerId, status: 'suppressed', cancellationReason: suppressionReason });
-        await store.cancelScheduledWarming({ userId: operation.userId, funnelId, reason: suppressionReason, status: 'suppressed' });
+        if (suppressionReason !== 'application_submitted') await store.cancelScheduledWarming({ userId: operation.userId, funnelId, reason: suppressionReason, status: 'suppressed' });
         result.suppressed += 1;
+        continue;
+      }
+      if (!allowInternalWarming && isInternalWebinarWarmingOperation(operation)) {
+        await store.finishScheduledOperation({ operationId: operation.id, workerId, status: 'cancelled', cancellationReason: 'webinarstars_legacy_warming' });
+        result.cancelled += 1;
         continue;
       }
       const user = await store.getUser(operation.userId);

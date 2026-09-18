@@ -64,6 +64,7 @@ test('plain /start uses direct attribution, persistent operation contract and st
   assert.equal(store.getTelegramUpdate(user.funnelId, 12).status, 'completed');
   assert.equal(store.listUserEvents(user.id).filter((item) => item.eventType === 'telegram_start').length, 1);
   const allOperations = store.listDeliveryOperations({ userId: user.id });
+  assert.equal(allOperations.filter((item) => item.messageType === 'warming').length, 0);
   const operations = allOperations.filter((item) => ['entry_notice', 'bonus', 'webinar_invite'].includes(item.messageType));
   assert.deepEqual(operations.map((item) => item.messageType), ['entry_notice', 'bonus', 'webinar_invite']);
   assert.ok(operations.every((item) => item.status === 'delivered' && item.attemptCount === 1 && item.providerMessageId));
@@ -81,6 +82,7 @@ test('plain /start uses direct attribution, persistent operation contract and st
   assert.equal(correlation.contractVersion, WEBINARSTARS_CORRELATION_CONTRACT);
   assert.equal(correlation.funnelEntryId, user.id);
   assert.equal(store.providerSessionEntries.size, 1);
+  assert.equal(store.listDeliveryOperations({ userId: user.id }).filter((item) => item.messageType === 'warming').length, 0);
 
   const repeat = await webhook(123456789, '/start', 12);
   assert.equal(repeat.status, 200);
@@ -103,4 +105,26 @@ test('plain /start uses direct attribution, persistent operation contract and st
   assert.equal((await parameterized.json()).duplicate, false);
   assert.equal(store.findUserByTelegramId(234567891).firstTouch.source, 'google');
   assert.equal(store.users.size, 2);
+});
+
+test('WebinarStars scheduler cancels a legacy internal reminder without sending', async () => {
+  const store = new MemoryStore({ now: () => new Date('2026-09-18T12:00:00Z') });
+  store.seed(localFixture);
+  const user = store.createUser({ funnelId: localFixture.funnel.id, funnelEntryTouch: { source: 'test' } });
+  const rule = localFixture.automationRules.find((item) => item.name === 'webinar_reminder_15m');
+  const operation = store.createScheduledDeliveryOperation({
+    operationKey: 'legacy-provider-boundary', funnelId: user.funnelId, userId: user.id,
+    telegramChatId: 'fixture', warmingRuleId: rule.id, messageClass: rule.messageClass,
+    funnelEntryKey: user.id, scheduledFor: '2026-09-18T11:00:00Z', earliestExecutionAt: '2026-09-18T11:00:00Z',
+    descriptor: { ruleName: rule.name, templateName: rule.actionConfig.templateName },
+  });
+  let sends = 0;
+  const flow = createMenWebinarFlow({ store, signingSecret, experienceProvider: createWebinarStarsExperienceProvider({ store, config }),
+    transport: { async sendMessage() { sends += 1; throw new Error('must_not_send'); } },
+    schedulerOptions: { now: () => new Date('2026-09-18T12:00:00Z') },
+  });
+  await flow.runWarmingScheduler();
+  assert.equal(store.getDeliveryOperation(operation.id).status, 'cancelled');
+  assert.equal(store.getDeliveryOperation(operation.id).cancellationReason, 'webinarstars_legacy_warming');
+  assert.equal(sends, 0);
 });

@@ -5,6 +5,7 @@ import { createMenWebinarFlow } from '../src/flow/men-webinar.mjs';
 import { PostgresStore } from '../src/store/postgres-store.mjs';
 import { createTelegramBotApiTransport } from '../src/telegram/bot-api-transport.mjs';
 import { getTelegramBotIdentity } from '../src/telegram/bot-api-admin.mjs';
+import { createInternalExperienceProvider, createWebinarStarsExperienceProvider } from '../src/webinarstars/experience-provider.mjs';
 
 const config = loadRuntimeConfig();
 if (config.storeMode !== 'postgres' || config.telegramTransportMode !== 'bot-api') {
@@ -33,6 +34,9 @@ try {
       botToken: config.botToken,
       timeoutMs: config.timeoutMs,
     }),
+    experienceProvider: config.webinarExperienceProvider === 'webinarstars'
+      ? createWebinarStarsExperienceProvider({ store, config: config.webinarStars })
+      : createInternalExperienceProvider(),
     recoveryOptions: { workerId: `manual-${randomUUID()}`, logger },
   });
   const result = await flow.runDeliveryRecovery();

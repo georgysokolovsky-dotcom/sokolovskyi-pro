@@ -184,7 +184,9 @@ test('late application, sold, stop and deletion cancel scheduled follow-ups befo
   const result=await createWebinarStarsFollowUpScheduler({store,config,experienceProvider:experience,
     applicationUrlProvider:{createApplicationUrl(){urls+=1;throw new Error('must_not_create_url');}},templates:WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES,
     now:()=>clock.value,transport:{async sendMessage(){sends+=1;}},workerId:'suppression'}).run();
-  assert.equal(result.cancelled,1); assert.equal(result.suppressed,3); assert.equal(urls,0); assert.equal(sends,0);
+  assert.equal(result.cancelled,0); assert.equal(result.suppressed,3);
+  assert.equal(store.listProviderFollowUps().find((item)=>item.userId===users.APPLICATION.id).status,'cancelled');
+  assert.equal(urls,0); assert.equal(sends,0);
 });
 
 test('production-default empty template configuration fails closed without a transport call', async () => {

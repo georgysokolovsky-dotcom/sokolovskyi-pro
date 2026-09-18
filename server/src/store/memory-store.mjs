@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { acceptedWatchSegment, summarizeWebinarProgress } from '../webinar/progress.mjs';
+import { stopsAfterApplication } from '../scheduler/lifecycle-purpose.mjs';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 
@@ -542,7 +543,7 @@ export class MemoryStore {
       requestStartedAt: status === 'retryable_failed' ? null : operation.requestStartedAt,
       updatedAt: timestamp,
     });
-    if (status === 'suppressed') {
+    if (status === 'suppressed' && errorCode !== 'application_submitted') {
       for (const dependent of this.deliveryOperations.values()) {
         if (dependent.funnelId === operation.funnelId && dependent.userId === operation.userId && ['scheduled', 'scheduler_processing', 'pending', 'retryable_failed'].includes(dependent.status)) {
           Object.assign(dependent, { status: 'suppressed', lastErrorCode: errorCode, lastErrorCategory: 'permanent', schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null, updatedAt: timestamp });
@@ -584,6 +585,20 @@ export class MemoryStore {
     if (!result.duplicate) {
       this.addEvent({ userId: args.userId, funnelId: args.funnelId, eventType: 'application_submitted', metadata: { purpose: 'application' }, idempotencyKey: `application-event:${result.application.id}` });
       this.updateUser(args.userId, { leadStatus: 'application_submitted' });
+      for (const operation of this.deliveryOperations.values()) {
+        if (operation.userId !== args.userId || operation.funnelId !== args.funnelId || !stopsAfterApplication(operation)) continue;
+        if (!['scheduled', 'scheduler_processing', 'pending', 'retryable_failed'].includes(operation.status)
+          && !(operation.status === 'processing' && !operation.requestStartedAt)) continue;
+        Object.assign(operation, { status: 'cancelled', cancellationReason: 'application_submitted',
+          leaseOwner: null, leaseStartedAt: null, leaseExpiresAt: null,
+          schedulerLeaseOwner: null, schedulerLeaseStartedAt: null, schedulerLeaseExpiresAt: null,
+          executedAt: this.now().toISOString(), updatedAt: this.now().toISOString() });
+      }
+      for (const followUp of this.providerFollowUps.values()) {
+        if (followUp.userId === args.userId && followUp.status === 'scheduled') {
+          Object.assign(followUp, { status: 'cancelled', cancellationReason: 'application_submitted', updatedAt: this.now().toISOString() });
+        }
+      }
     }
     return result;
   }
