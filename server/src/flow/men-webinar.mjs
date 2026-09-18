@@ -144,6 +144,7 @@ export function createMenWebinarFlow({
   signingSecret,
   botUsername,
   applicationReference = 'lab://men-funnel/application',
+  applicationConsentVersion = null,
   webinarBaseUrl = null,
   entryNotice = defaultEntryNotice,
   transport = createDevTelegramTransport(),
@@ -743,6 +744,7 @@ export function createMenWebinarFlow({
     const { user } = await resolveToken(token, 'application');
     const cleanAnswers = sanitizeAnswers(answers);
     const cleanConsent = assertConsent(consent);
+    if (applicationConsentVersion && cleanConsent.policyVersion !== applicationConsentVersion) throw new FunnelError('consent_version_mismatch', 'Consent version mismatch', 409);
     if (idempotencyKey != null && (typeof idempotencyKey !== 'string' || idempotencyKey.length > 120)) throw new FunnelError('invalid_input', 'Invalid idempotency key');
     const serverIdempotencyKey = `application:${user.id}:${user.funnelId}`;
     const result = await store.createApplicationWithEvent({ userId: user.id, funnelId: user.funnelId, answers: cleanAnswers, consent: cleanConsent, idempotencyKey: serverIdempotencyKey });

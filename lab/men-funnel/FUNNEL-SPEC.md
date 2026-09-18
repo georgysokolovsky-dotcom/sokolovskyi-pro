@@ -1191,6 +1191,10 @@ application without further relationship: 12 months
 - порядок обработки `/delete`, сроки ответа и границы анонимизации;
 - нужно ли в будущем собирать дополнительные поля и на каком основании.
 
+### Production hardening: кодовый контракт
+
+Production profile требует PostgreSQL, официальный Telegram Bot API и WebinarStars; default исходящие отправки, provider sync и follow-up выключены. Первый canary использует отдельный allowlisted Telegram ID, подтверждённый вне staging. Admin/test routes закрыты. Application требует явных HTTPS origin, privacy URL, consent version и отдельно утверждённого consent text. Для webinar 31195 daily resolver выбирает 19:00 Europe/Kiev на сегодня до старта, затем на следующий день, с end через 91 минуту и DST через IANA timezone. Первый выбор session сохраняется за funnel entry; report и visitor сопоставляются с этой привязкой, а стабильный `utm_content` не меняется. Worker команды и kill switches описаны в `server/README.md`. Этот контракт не означает production cutover, создание инфраструктуры или готовность юридических текстов.
+
 ### Нужны отдельные production-решения
 
 - активировать ли Telegram Bot API adapter и когда передавать token;
@@ -1239,6 +1243,6 @@ Post-webinar decision создаётся один раз после finalized re
 
 Timing от report finalization: A +30 минут, B/C/D +60 минут, E +20 минут, F/G без follow-up. A/B ведут на следующий scheduled webinar с тем же stable correlation token. Application, sold, Telegram stop, deletion, deleted/anonymized и другие suppression states повторно проверяются перед delivery и отменяют scheduled operation, не изменяя исторический segment snapshot.
 
-Persistence защищает decision по provider/funnel entry/report и follow-up по `(funnel_entry, report_id, segment, follow_up_rule)`. Пять v1 templates с точными текстами, purpose, single CTA и variables allowlist утверждены только в staging configuration. Production/default template config остаётся пустым, executor fail-closed и не подключён к production scheduler.
+Persistence защищает decision по provider/funnel entry/report и follow-up по `(funnel_entry, report_id, segment, follow_up_rule)`. Пять v1 templates с точными текстами, purpose, single CTA и variables allowlist используются staging и явным production runner из одного источника. Production delivery по умолчанию выключен `WEBINARSTARS_FOLLOWUP_ENABLED=false` и `TELEGRAM_OUTBOUND_ENABLED=false`.
 
 Для A/B MEN backend восстанавливает тот же stable `utm_content`. Для C/D/E static application URL запрещён: после повторной application/suppression проверки MEN backend выпускает персональный purpose-bound application token с `user_ref` и `funnel_id`. Статического `WEBINARSTARS_APPLICATION_URL` нет.

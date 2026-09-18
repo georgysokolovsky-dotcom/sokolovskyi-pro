@@ -102,6 +102,14 @@ export class MemoryStore {
     return clone(saved);
   }
 
+  findProviderSessionEntryForFunnelEntry(funnelEntryId) {
+    return clone([...this.providerSessionEntries.values()].find((item) => item.funnelEntryId === funnelEntryId) ?? null);
+  }
+
+  findProviderSessionEntry({ sessionId, funnelEntryId }) {
+    return clone(this.providerSessionEntries.get(`${sessionId}:${funnelEntryId}`) ?? null);
+  }
+
   listProviderSessionEntries(sessionId) {
     return clone([...this.providerSessionEntries.values()].filter((item) => item.sessionId === sessionId));
   }

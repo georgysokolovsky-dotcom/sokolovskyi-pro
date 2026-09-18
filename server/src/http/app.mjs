@@ -55,7 +55,9 @@ function requireLocalAdmin(request, adminKey) {
   if (!adminKey || request.headers['x-admin-local-key'] !== adminKey) throw new FunnelError('unauthorized', 'Unauthorized', 401);
 }
 
-export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey = null, allowedTelegramUserId = null, mediaSource = createLocalFixtureMediaSource() }) {
+export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey = null, allowedTelegramUserId = null,
+  telegramOutboundEnabled = true, adminApiEnabled = mode !== 'production', privacyPolicyUrl = null,
+  applicationConsentVersion = null, applicationConsentText = null, logger = null, mediaSource = createLocalFixtureMediaSource() }) {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
@@ -75,8 +77,9 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
 
       if (method === 'GET' && url.pathname === '/application') {
         try {
+          if (mode === 'production' && (!privacyPolicyUrl || !applicationConsentVersion || !applicationConsentText)) throw new FunnelError('legal_config_missing', 'Legal configuration is required', 503);
           const access = await flow.validateApplicationAccess({ token: url.searchParams.get('t') });
-          return sendWebinarDocument(response, 200, renderApplicationPage(access));
+          return sendWebinarDocument(response, 200, renderApplicationPage(access, { privacyPolicyUrl, consentVersion: applicationConsentVersion, consentText: applicationConsentText }));
         } catch (error) {
           return sendWebinarDocument(response, error instanceof FunnelError ? error.status : 500, renderApplicationDeniedPage());
         }
@@ -123,15 +126,23 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
       }
 
       if (method === 'POST' && url.pathname === '/v1/webhooks/telegram') {
-        if (!webhookSecret || request.headers['x-telegram-bot-api-secret-token'] !== webhookSecret) throw new FunnelError('unauthorized', 'Unauthorized', 401);
+        if (!webhookSecret || request.headers['x-telegram-bot-api-secret-token'] !== webhookSecret) {
+          logger?.info?.({ event: 'telegram_webhook_rejected', reason: 'unauthorized' });
+          throw new FunnelError('unauthorized', 'Unauthorized', 401);
+        }
         const body = await readJson(request);
         const message = body.message;
         if (allowedTelegramUserId != null && String(message?.from?.id) !== String(allowedTelegramUserId)) {
+          logger?.info?.({ event: 'telegram_webhook_rejected', reason: 'allowlist' });
           return sendJson(response, 200, { ok: true, ignored: true });
+        }
+        if (mode === 'production' && !telegramOutboundEnabled) {
+          logger?.info?.({ event: 'telegram_webhook_rejected', reason: 'outbound_disabled' });
+          throw new FunnelError('outbound_disabled', 'Outbound disabled', 503);
         }
         const text = typeof message?.text === 'string' ? message.text : '';
         const match = text.match(/^\/start(?:\s+([a-z0-9_-]{1,64}))?$/i);
-        if (!match || !message?.from?.id) return sendJson(response, 200, { ok: true, ignored: true });
+        if (!match || !message?.from?.id) { logger?.info?.({ event: 'telegram_webhook_rejected', reason: 'unsupported' }); return sendJson(response, 200, { ok: true, ignored: true }); }
         const result = await flow.handleTelegramStart({
           telegramUserId: message.from.id,
           firstName: message.from.first_name ?? null,
@@ -140,6 +151,8 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
           startParameter: match[1] ?? '',
           updateId: body.update_id ?? null,
         });
+        logger?.info?.({ event: 'telegram_webhook_accepted', duplicate: result.duplicate,
+          notice: result.notice.status, bonus: result.bonusDelivery.status, invite: result.webinarInviteDelivery.status });
         return sendJson(response, 200, {
           ok: true,
           duplicate: result.duplicate,
@@ -183,16 +196,19 @@ export function createApp({ flow, mode = 'local', webhookSecret = null, adminKey
       if (method === 'POST' && url.pathname === '/v1/applications') {
         const body = await readJson(request);
         const result = await flow.submitApplication(body);
+        logger?.info?.({ event: 'application_submitted', duplicate: result.duplicate });
         return sendJson(response, result.duplicate ? 200 : 201, { ok: true, applicationId: result.application.id, status: result.application.status, duplicate: result.duplicate });
       }
 
       if (method === 'GET' && url.pathname === '/v1/admin/dashboard') {
+        if (mode === 'production' && !adminApiEnabled) throw new FunnelError('not_found', 'Not found', 404);
         requireLocalAdmin(request, adminKey);
         return sendJson(response, 200, { ok: true, dashboard: await flow.dashboard(url.searchParams.get('funnel_id') ?? undefined) });
       }
 
       const leadMatch = url.pathname.match(/^\/v1\/admin\/leads\/([^/]+)$/);
       if (method === 'GET' && leadMatch) {
+        if (mode === 'production' && !adminApiEnabled) throw new FunnelError('not_found', 'Not found', 404);
         requireLocalAdmin(request, adminKey);
         return sendJson(response, 200, { ok: true, lead: await flow.leadDetails(leadMatch[1]) });
       }

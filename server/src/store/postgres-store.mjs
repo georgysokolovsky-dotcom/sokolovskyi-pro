@@ -68,9 +68,9 @@ function mapProviderFollowUp(row) {
 }
 
 export class PostgresStore {
-  constructor({ connectionString, pool = null } = {}) {
+  constructor({ connectionString, pool = null, poolOptions = {} } = {}) {
     if (!pool && !connectionString) throw new Error('DATABASE_URL is required for FUNNEL_STORE=postgres');
-    this.pool = pool ?? new Pool({ connectionString });
+    this.pool = pool ?? new Pool({ connectionString, ...poolOptions });
   }
 
   async close() { await this.pool.end(); }
@@ -155,7 +155,18 @@ export class PostgresStore {
       (session_id,funnel_entry_id,user_id,funnel_id,correlation_hmac) values ($1,$2,$3,$4,$5)
       on conflict (session_id,funnel_entry_id) do update set session_id=excluded.session_id returning *`,
     [sessionId,funnelEntryId,userId,funnelId,correlationHmac])).rows[0];
+    if (row.user_id !== userId || row.correlation_hmac !== correlationHmac) throw new Error('provider_session_entry_conflict');
     return {sessionId:row.session_id,funnelEntryId:row.funnel_entry_id,userId:row.user_id,funnelId:row.funnel_id,correlationHmac:row.correlation_hmac,createdAt:iso(row.created_at)};
+  }
+
+  async findProviderSessionEntryForFunnelEntry(funnelEntryId) {
+    const row=(await this.pool.query('select * from provider_session_entries where funnel_entry_id=$1 order by created_at,session_id limit 1',[funnelEntryId])).rows[0];
+    return row ? {sessionId:row.session_id,funnelEntryId:row.funnel_entry_id,userId:row.user_id,funnelId:row.funnel_id,correlationHmac:row.correlation_hmac,createdAt:iso(row.created_at)} : null;
+  }
+
+  async findProviderSessionEntry({ sessionId, funnelEntryId }) {
+    const row=(await this.pool.query('select * from provider_session_entries where session_id=$1 and funnel_entry_id=$2',[sessionId,funnelEntryId])).rows[0];
+    return row ? {sessionId:row.session_id,funnelEntryId:row.funnel_entry_id,userId:row.user_id,funnelId:row.funnel_id,correlationHmac:row.correlation_hmac,createdAt:iso(row.created_at)} : null;
   }
 
   async listProviderSessionEntries(sessionId) {

@@ -19,9 +19,11 @@ export function createWebinarStarsSyncScheduler({ store, client, config, lifecyc
 
   async function recordVisitor(session, report, visitor) {
     const token = parseCorrelationToken(visitor.rawUtm);
-    const correlation = token
+    const lookup = token
       ? await store.findProviderCorrelation({ provider, correlationHmac: createCorrelationHmac(token, config.correlationSecret) })
       : null;
+    const binding = lookup ? await store.findProviderSessionEntry({ sessionId: session.id, funnelEntryId: lookup.funnelEntryId }) : null;
+    const correlation = binding?.sessionId === session.id && binding?.correlationHmac === lookup.correlationHmac ? lookup : null;
     const signals = classifyVisitor(visitor, session, config);
     if (correlation && !signals.timingValid) throw new Error('invalid_provider_presence_interval');
     const saved = await store.ingestProviderVisitor({
@@ -29,6 +31,7 @@ export function createWebinarStarsSyncScheduler({ store, client, config, lifecyc
       userId: correlation?.userId ?? null, funnelId: session.funnelId,
       correlationStatus: correlation ? 'matched' : 'unmatched', signals,
     });
+    safeLog(logger, 'webinarstars_visitor', { matched: Boolean(correlation), duplicate: saved.duplicate });
     if (saved.duplicate || !correlation) return { duplicate: saved.duplicate, matched: Boolean(correlation) };
     const base = `${provider}:${report.reportId}:${visitor.visitorId}`;
     const events = [

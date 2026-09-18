@@ -1,12 +1,18 @@
-export function renderApplicationPage({ submitted = false } = {}) {
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+
+export function renderApplicationPage({ submitted = false } = {}, { privacyPolicyUrl = null, consentVersion = null, consentText = null } = {}) {
+  const legal = privacyPolicyUrl && consentVersion
+    ? `<p><a href="${escapeHtml(privacyPolicyUrl)}" target="_blank" rel="noopener noreferrer">Политика конфиденциальности</a></p>` : '';
+  const attributes = consentVersion ? ` data-consent-version="${escapeHtml(consentVersion)}" data-consent-source="production_application_form"` : '';
+  const label = consentText ? escapeHtml(consentText) : 'Согласен передать эти данные для рассмотрения заявки';
   const content = submitted
     ? '<h1>Заявка уже отправлена</h1><p>Повторно заполнять форму не нужно.</p>'
     : `<h1>Запись на разбор</h1>
       <p>Опиши ситуацию своими словами. Эти данные нужны для подготовки к встрече.</p>
-      <form id="application-form">
+      ${legal}<form id="application-form"${attributes}>
         <label for="name">Имя</label><input id="name" name="name" maxlength="200" required autocomplete="name">
         <label for="situation">Что происходит сейчас</label><textarea id="situation" name="situation" maxlength="2000" required rows="6"></textarea>
-        <label class="consent"><input type="checkbox" name="consent" required> Согласен передать эти данные для рассмотрения заявки</label>
+        <label class="consent"><input type="checkbox" name="consent" required> ${label}</label>
         <button type="submit">Отправить заявку</button><p id="status" role="status" aria-live="polite"></p>
       </form><script src="/v1/applications/form.js" defer></script>`;
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Запись на разбор</title><style>

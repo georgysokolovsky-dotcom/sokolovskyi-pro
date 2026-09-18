@@ -33,7 +33,8 @@ integrationTest('application suppresses internal warming before transport across
   }
   await store.seed(localFixture);
 
-  const clock = { value: new Date('2026-09-18T12:00:00Z') };
+  // Keep the fake clock ahead of the database wall clock used by operation defaults.
+  const clock = { value: new Date('2027-09-18T12:00:00Z') };
   let sequence = 70_000;
   const sent = [];
   const makeFlow = (targetStore = store) => createMenWebinarFlow({

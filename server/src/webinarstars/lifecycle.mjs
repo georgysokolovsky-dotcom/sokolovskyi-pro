@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { classifyDeliveryError, getDeliverySuppressionReason } from '../delivery/recovery-executor.mjs';
 import { decideWebinarStarsSegment, WEBINARSTARS_FOLLOW_UP_POLICY, WEBINARSTARS_FOLLOW_UP_TEMPLATE_CONTRACTS } from './lifecycle-policy.mjs';
 
-export function createWebinarStarsLifecycle({ store, config, now = () => new Date() } = {}) {
+export function createWebinarStarsLifecycle({ store, config, now = () => new Date(), logger = null } = {}) {
   if (!store || !config) throw new Error('WebinarStars lifecycle dependencies are required');
 
   async function finalizeReport({ session, reportId, finalizedAt = now().toISOString() }) {
@@ -29,6 +29,7 @@ export function createWebinarStarsLifecycle({ store, config, now = () => new Dat
           targetCtaClicked: visitor?.signals?.targetCtaClicked ?? false, suppressionReason },
       });
       if (saved.duplicate) result.duplicates += 1; else result.decisions += 1;
+      logger?.info?.({ event: 'webinarstars_segment_decision', segment: saved.record.segment, duplicate: saved.duplicate });
       const snapshotSegment = saved.record.segment;
       const rule = WEBINARSTARS_FOLLOW_UP_POLICY[snapshotSegment];
       const template = WEBINARSTARS_FOLLOW_UP_TEMPLATE_CONTRACTS[snapshotSegment];
@@ -40,6 +41,7 @@ export function createWebinarStarsLifecycle({ store, config, now = () => new Dat
         followUpRule: rule.ruleId, templateId: template.templateId, scheduledFor,
       });
       if (!followUp.duplicate) result.scheduled += 1;
+      logger?.info?.({ event: 'webinarstars_followup_scheduled', segment: snapshotSegment, duplicate: followUp.duplicate });
     }
     return result;
   }
@@ -48,7 +50,7 @@ export function createWebinarStarsLifecycle({ store, config, now = () => new Dat
 }
 
 export function createWebinarStarsFollowUpScheduler({ store, config, experienceProvider, applicationUrlProvider = null, transport, templates = {}, allowedUserId = null,
-  now = () => new Date(), workerId = `webinarstars-follow-up-${randomUUID()}`, leaseMs = 30_000 } = {}) {
+  now = () => new Date(), workerId = `webinarstars-follow-up-${randomUUID()}`, leaseMs = 30_000, logger = null } = {}) {
   if (!store || !config || !experienceProvider || !transport) throw new Error('WebinarStars follow-up scheduler dependencies are required');
 
   async function run({ limit = 100 } = {}) {
@@ -60,12 +62,14 @@ export function createWebinarStarsFollowUpScheduler({ store, config, experienceP
       const application = await store.getApplicationForUser(operation.userId);
       if (application?.status === 'submitted') {
         await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'cancelled', cancellationReason: 'application_submitted' });
+        logger?.info?.({ event: 'webinarstars_followup_cancelled', reason: 'application_submitted' });
         result.cancelled += 1;
         continue;
       }
       const suppressionReason = await getDeliverySuppressionReason(store, operation.userId, operation.funnelId);
       if (suppressionReason) {
         await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'suppressed', cancellationReason: suppressionReason });
+        logger?.info?.({ event: 'webinarstars_followup_cancelled', reason: suppressionReason });
         result.suppressed += 1;
         continue;
       }
@@ -79,6 +83,7 @@ export function createWebinarStarsFollowUpScheduler({ store, config, experienceP
         && template.variables[0] === contract?.variables?.[0];
       if (!template?.approved || !validContract || typeof template.text !== 'string' || !template.text.trim()) {
         await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'blocked_template', cancellationReason: 'template_not_approved' });
+        logger?.info?.({ event: 'webinarstars_followup_blocked', reason: 'template_not_approved' });
         result.blockedTemplate += 1;
         continue;
       }
@@ -89,17 +94,19 @@ export function createWebinarStarsFollowUpScheduler({ store, config, experienceP
         const lateApplication = await store.getApplicationForUser(operation.userId);
         if (lateApplication?.status === 'submitted') {
           await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'cancelled', cancellationReason: 'application_submitted' });
+          logger?.info?.({ event: 'webinarstars_followup_cancelled', reason: 'application_submitted' });
           result.cancelled += 1;
           continue;
         }
         const lateSuppression = await getDeliverySuppressionReason(store, operation.userId, operation.funnelId);
         if (lateSuppression) {
           await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'suppressed', cancellationReason: lateSuppression });
+          logger?.info?.({ event: 'webinarstars_followup_cancelled', reason: lateSuppression });
           result.suppressed += 1;
           continue;
         }
         const variables = {};
-        if (template.cta === 'next_webinar') variables.next_webinar_url = (await experienceProvider.createExperienceUrl({ user })).url;
+        if (template.cta === 'next_webinar') variables.next_webinar_url = (await experienceProvider.createExperienceUrl({ user, nextSession: true })).url;
         if (template.cta === 'application') {
           if (!applicationUrlProvider?.createApplicationUrl) throw new Error('application_url_provider_missing');
           variables.application_url = (await applicationUrlProvider.createApplicationUrl({ user })).url;
@@ -110,11 +117,13 @@ export function createWebinarStarsFollowUpScheduler({ store, config, experienceP
         const sent = await transport.sendMessage({ userId: user.id, funnelId: user.funnelId, telegramChatId: telegram.telegramChatId,
           message: { role: 'webinar_follow_up', text: template.text, buttons: [{ type: 'url', label: template.ctaLabel ?? 'Перейти', url: variables[template.variables[0]] }], templateId: template.templateId, variables } });
         await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'delivered', provider: sent.provider, providerMessageId: sent.messageId });
+        logger?.info?.({ event: 'webinarstars_followup_delivered', templateId: template.templateId });
         result.delivered += 1;
       } catch (error) {
         const failure = classifyDeliveryError(error);
         const status = failure.category === 'unknown' ? 'delivery_unknown' : 'failed';
         await store.finishProviderFollowUp({ id: operation.id, workerId, status, cancellationReason: failure.code });
+        logger?.info?.({ event: 'webinarstars_followup_failed', status, reason: failure.code });
         if (status === 'delivery_unknown') result.deliveryUnknown += 1; else result.failed += 1;
       }
     }

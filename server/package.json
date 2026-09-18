@@ -7,7 +7,7 @@
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
     "test": "node --test",
-    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs tests/warming-scheduler.test.mjs tests/warming-application-suppression.test.mjs tests/webinar-progress-postgres.test.mjs tests/webinarstars-postgres.test.mjs tests/direct-telegram-start-postgres.test.mjs",
+    "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs tests/warming-scheduler.test.mjs tests/warming-application-suppression.test.mjs tests/webinar-progress-postgres.test.mjs tests/webinarstars-postgres.test.mjs tests/direct-telegram-start-postgres.test.mjs tests/migration-runner-postgres.test.mjs",
     "test:browser": "playwright test --config=playwright.config.mjs",
     "test:mux-staging": "node --env-file-if-exists=../.env.staging.local node_modules/@playwright/test/cli.js test --config=playwright.mux.config.mjs",
     "migrate": "node scripts/migrate.mjs",
@@ -16,6 +16,7 @@
     "operations:inspect": "node scripts/operations-inspect.mjs",
     "staging:webinarstars-verify": "node --env-file-if-exists=../.env.staging.local scripts/webinarstars-verify.mjs",
     "webinarstars:sync": "node scripts/webinarstars-sync.mjs",
+    "webinarstars:followup": "node scripts/webinarstars-followup.mjs",
     "staging:webinarstars-followup": "node --env-file-if-exists=../.env.staging.local scripts/webinarstars-staging-followup.mjs",
     "staging:webhook": "node scripts/telegram-webhook.mjs",
     "staging:verify": "node scripts/staging-verify.mjs"

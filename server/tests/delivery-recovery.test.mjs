@@ -40,7 +40,7 @@ integrationTest('PostgreSQL recovery covers crash, retry, suppression and concur
     return { user: claim.user, operation };
   }
 
-  function executor({ sent, errors = [], workerId, now = () => new Date() }) {
+  function executor({ sent, errors = [], workerId, now = () => new Date(Date.now() + 1000) }) {
     return createDeliveryRecoveryExecutor({
       store, workerId, now, leaseMs: 1000, baseDelayMs: 100,
       resolveMessage: async () => ({ role: 'bonus', text: 'recovery-test', buttons: [] }),

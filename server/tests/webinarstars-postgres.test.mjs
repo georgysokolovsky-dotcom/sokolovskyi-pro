@@ -16,6 +16,79 @@ const { Pool } = pg;
 const connectionString = process.env.FUNNEL_TEST_DATABASE_URL;
 const integrationTest = connectionString ? test : test.skip;
 
+integrationTest('daily production binding survives restart and rejects another session report', async (t) => {
+  const schema = `men_daily_${randomUUID().replaceAll('-', '')}`;
+  const admin = new Pool({ connectionString, max: 2 });
+  await admin.query(`create schema ${schema}`);
+  const pools = [];
+  const makeStore = () => {
+    const pool = new Pool({ connectionString, max: 2, options: `-c search_path=${schema}` });
+    pools.push(pool);
+    return new PostgresStore({ pool });
+  };
+  t.after(async () => {
+    await Promise.allSettled(pools.map((pool) => pool.end()));
+    await admin.query(`drop schema if exists ${schema} cascade`);
+    await admin.end();
+  });
+  const first = makeStore();
+  const migrationsUrl = new URL('../migrations/', import.meta.url);
+  for (const name of (await readdir(migrationsUrl)).filter((item) => /^\d+.*\.sql$/.test(item)).sort()) {
+    await first.pool.query(await readFile(new URL(name, migrationsUrl), 'utf8'));
+  }
+  await first.seed(localFixture);
+  const source = await first.findSourceByStartParameter(localFixture.funnel.id, 'article_wife_cheating');
+  const touch = { sourceId: source.id, source: source.source, medium: source.medium, campaign: source.campaign,
+    content: source.content, articleSlug: source.articleSlug, startParameter: source.startParameter, occurredAt: '2026-09-18T12:00:00Z' };
+  const claimed = await first.claimTelegramStart({ source, telegramUserId: 91001, telegramChatId: 91001,
+    firstName: null, username: null, languageCode: null, firstTouch: touch, funnelEntryTouch: touch,
+    eventMetadata: {}, eventKey: 'production-daily-binding', updateId: 91001, occurredAt: touch.occurredAt });
+  const config = { scheduleMode: 'daily', dailyStartLocal: '19:00', durationMinutes: 91, timeZone: 'Europe/Kiev',
+    correlationSecret: 'daily-test-secret', webinarId: '31195', registrationUrl: 'https://provider.invalid/register',
+    pollOffsetsMinutes: [0, 1, 3, 5, 10, 15], targetCtaShowNumbers: ['1', '2'], offerBoundarySeconds: 3300 };
+  const original = await createWebinarStarsExperienceProvider({ store: first, config,
+    now: () => new Date('2026-09-18T12:00:00Z') }).createExperienceUrl({ user: claimed.user });
+  const binding = await first.findProviderSessionEntryForFunnelEntry(claimed.user.id);
+  const session = await first.getProviderSyncSession(binding.sessionId);
+  assert.equal(session.scheduledStart, '2026-09-18T16:00:00.000Z');
+  assert.equal(session.scheduledEnd, '2026-09-18T17:31:00.000Z');
+  await first.close();
+
+  const restarted = makeStore();
+  const repeated = await createWebinarStarsExperienceProvider({ store: restarted, config,
+    now: () => new Date('2026-09-19T12:00:00Z') }).createExperienceUrl({ user: claimed.user });
+  assert.equal(repeated.url, original.url);
+  assert.equal((await restarted.findProviderSessionEntryForFunnelEntry(claimed.user.id)).sessionId, session.id);
+  const nextLink = await createWebinarStarsExperienceProvider({ store: restarted, config,
+    now: () => new Date('2026-09-19T12:00:00Z') }).createExperienceUrl({ user: claimed.user, nextSession: true });
+  assert.equal(nextLink.url, original.url);
+  const nextSessions = (await restarted.pool.query('select session_id from provider_session_entries where funnel_entry_id=$1', [claimed.user.id])).rows;
+  assert.equal(nextSessions.length, 2);
+  assert.ok(nextSessions.some((row) => row.session_id === session.id));
+  const token = createCorrelationToken(claimed.user.id, config.correlationSecret);
+  const client = {
+    async getReports() { return { reports: [
+      { report_id: 2, webinar_id: 31195, date_start: '2026-09-19T16:00:00Z', date_end: '2026-09-19T17:31:00Z' },
+      { report_id: 1, webinar_id: 31195, date_start: session.scheduledStart, date_end: session.scheduledEnd },
+    ] }; },
+    async getReport(id) { assert.equal(String(id), '1'); return { report_id: 1, webinar_id: 31195,
+      date_start: session.scheduledStart, date_end: session.scheduledEnd,
+      visitors: [{ visitor_id: 1, utm: `utm_content=${token}`, date_start: '2026-09-18T16:03:00Z', date_end: '2026-09-18T16:08:00Z' }] }; },
+  };
+  const result = await createWebinarStarsSyncScheduler({ store: restarted, client, config,
+    now: () => new Date('2026-09-18T17:31:00Z'), workerId: 'daily-restart' }).run();
+  assert.equal(result.completed, 1);
+  assert.equal(result.matched, 1);
+  assert.equal((await restarted.listProviderVisitors())[0].reportId, '1');
+  const second = await createWebinarStarsSyncScheduler({ store: restarted,
+    client: { getReports: client.getReports, async getReport(id) { assert.equal(String(id), '2'); return {
+      report_id: 2, webinar_id: 31195, date_start: '2026-09-19T16:00:00Z', date_end: '2026-09-19T17:31:00Z',
+      visitors: [{ visitor_id: 2, utm: `utm_content=${token}`, date_start: '2026-09-19T16:03:00Z', date_end: '2026-09-19T16:08:00Z' }],
+    }; } }, config, now: () => new Date('2026-09-19T17:31:00Z'), workerId: 'daily-next' }).run();
+  assert.equal(second.completed, 1);
+  assert.equal(second.matched, 1);
+});
+
 integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrently and ingests visitors once', async (t) => {
   const schema = `men_webinarstars_${randomUUID().replaceAll('-', '')}`;
   const admin = new Pool({ connectionString, max: 2 });

@@ -1,5 +1,5 @@
-// Explicitly approved for staging simulation only. Production does not import this configuration.
-export const WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES = Object.freeze({
+// Approved copy shared by staging tests and the explicitly enabled production worker.
+export const APPROVED_WEBINARSTARS_FOLLOW_UP_TEMPLATES = Object.freeze({
   NO_SHOW: Object.freeze({
     templateId: 'ws_no_show_v1', purpose: 'return_to_next_webinar', approved: true,
     text: 'Ты был записан на вебинар, но в этот раз не попал внутрь.\n\nЯ оставлю тебе следующий запуск. На вебинаре я разбираю, почему в отношениях мужчина постепенно теряет влияние, что обычно усиливает дистанцию с женщиной и с чего начинать восстановление своей позиции.\n\nЛучше пройти его целиком, потому что ближе к концу я показываю, как перейти от общей информации к разбору своей ситуации.',
@@ -26,3 +26,5 @@ export const WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES = Object.freeze({
     cta: 'application', ctaLabel: 'Завершить заявку', variables: Object.freeze(['application_url']),
   }),
 });
+
+export const WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES = APPROVED_WEBINARSTARS_FOLLOW_UP_TEMPLATES;

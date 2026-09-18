@@ -6,13 +6,17 @@ import { createWebinarStarsLifecycle } from '../src/webinarstars/lifecycle.mjs';
 
 const config = loadRuntimeConfig();
 if (config.webinarExperienceProvider !== 'webinarstars' || !config.webinarStars) throw new Error('WEBINAR_EXPERIENCE_PROVIDER=webinarstars is required');
-const store = new PostgresStore({ connectionString: config.databaseUrl });
+const store = new PostgresStore({ connectionString: config.databaseUrl, poolOptions: config.databasePoolOptions });
 try {
+  if (config.mode === 'production' && !config.webinarStarsSyncEnabled) {
+    console.log(JSON.stringify({ event: 'webinarstars_sync_skipped', reason: 'sync_disabled' }));
+  } else {
   const scheduler = createWebinarStarsSyncScheduler({
     store,
     client: createWebinarStarsClient({ baseUrl: config.webinarStars.apiBaseUrl, apiToken: config.webinarStars.apiToken, timeoutMs: config.timeoutMs }),
     config: config.webinarStars,
-    lifecycle: createWebinarStarsLifecycle({ store, config: config.webinarStars }),
+    lifecycle: createWebinarStarsLifecycle({ store, config: config.webinarStars,
+      logger: { info: (entry) => console.log(JSON.stringify(entry)) } }),
     logger: { info: (entry) => console.log(JSON.stringify(entry)) },
   });
   const retryIndex = process.argv.indexOf('--retry');
@@ -23,6 +27,7 @@ try {
     if (!retried) throw new Error('Provider sync session is not retryable');
   }
   console.log(JSON.stringify(await scheduler.run()));
+  }
 } finally {
   await store.close();
 }

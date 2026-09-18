@@ -12,7 +12,7 @@ if (form) {
       const body = {
         token,
         answers: { name: form.elements.name.value, situation: form.elements.situation.value },
-        consent: { accepted: form.elements.consent.checked, policyVersion: 'men_application_staging_v1', source: 'staging_application_form' },
+        consent: { accepted: form.elements.consent.checked, policyVersion: form.dataset.consentVersion || 'men_application_staging_v1', source: form.dataset.consentSource || 'staging_application_form' },
       };
       const response = await fetch('/v1/applications', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       if (!response.ok) throw new Error('submission_failed');
