@@ -33,6 +33,7 @@ test('purpose-bound application page validates token and submits allowlist to st
   assert.match(html, /name="phone"/);
   assert.match(html, /type="tel"/);
   assert.match(html, /Записаться на разбор/);
+  assert.match(html, /Данные используются для рассмотрения заявки и связи с вами\./);
   assert.match(html, /href="https:\/\/example\.invalid\/privacy-policy\/"[^>]*>Политикой конфиденциальности<\/a>/);
   assert.doesNotMatch(html, /name="situation"/);
   assert.doesNotMatch(html, /name="email"/);
