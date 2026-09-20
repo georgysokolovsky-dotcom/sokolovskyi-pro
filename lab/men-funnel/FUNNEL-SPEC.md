@@ -836,13 +836,14 @@ Lifecycle executor должен работать поверх сохранённ
 | Поле | Обязательность | Смысл |
 |---|---|---|
 | `name` | обязательно | имя для ответа на заявку |
-| `situation` | обязательно | краткое описание текущей ситуации |
+| `phone` | обязательно | номер для связи и организации разбора |
 
 Telegram user уже известен системе. Поле Telegram username повторно не запрашивается.
 
 Не запрашиваются специально:
 
 - email;
+- описание ситуации;
 - адрес;
 - документы;
 - финансовые данные;
@@ -850,8 +851,6 @@ Telegram user уже известен системе. Поле Telegram username
 - данные детей;
 - интимные подробности;
 - другие чувствительные сведения, не нужные для принятия заявки.
-
-Рядом с `situation` должно быть нейтральное уведомление: не указывать ненужные персональные данные третьих лиц.
 
 Дополнительные поля позже добавляются конфигурацией allowlist, а не переписыванием application logic. До отдельного подтверждения они не входят в baseline UI и server contract.
 
@@ -862,17 +861,17 @@ Server:
 1. проверяет `application_token`;
 2. проверяет `purpose=application` и `funnel_id=men_webinar_v1`;
 3. принимает только поля из allowlist;
-4. ограничивает длину `name` и `situation` разумным конфигурационным пределом;
-5. проверяет, что `situation` не пустое;
-6. показывает или сохраняет версию notice о нежелательных персональных данных;
-7. получает отдельное подтверждение обработки данных в форме, когда будет утверждён legal text;
+4. ограничивает длину `name` и телефонного ввода разумным пределом;
+5. нормализует `phone` как строку без определения страны и проверяет 7–15 цифр с необязательным ведущим `+`;
+6. отклоняет `situation`, `email` и другие поля вне allowlist;
+7. показывает ссылку на privacy policy и фиксирует acknowledgement с версией текста и временем;
 8. создаёт одну application со статусом `submitted`;
 9. создаёт событие `application_submitted`;
 10. передаёт запись в локальный CRM view.
 
 Повторная отправка с тем же idempotency key возвращает исходную application и не создаёт дубликат.
 
-Финальный юридический текст согласия, lawful basis и набор обязательных чекбоксов не придумываются этим документом.
+Checkbox означает ознакомление с privacy notice, а не marketing consent и не согласие на обработку специальных категорий данных. Lawful basis и полный текст policy утверждаются отдельно.
 
 ## H. CRM view
 
@@ -917,8 +916,8 @@ Lead
 ├── Application
 │   ├── application_id
 │   ├── submitted_at
-│   ├── answers: name, situation
-│   └── legal/consent metadata, если утверждено
+│   ├── answers: name, phone
+│   └── privacy acknowledgement/version metadata
 ├── Automation
 │   ├── scheduled messages
 │   ├── sent messages
@@ -1061,7 +1060,7 @@ traffic source
 | Bonus | bonus ID/version, попытка, sent/failed status, template ID/version, provider message ID после реального подключения |
 | Warming | rule/template IDs, schedule status, message class, delivery result |
 | Webinar | webinar/video IDs, purpose-bound access events, first-party player sessions, watched ranges, progress thresholds, CTA events |
-| Application | только на этом этапе: `name`, `situation`, application status и утверждённые consent metadata |
+| Application | только на этом этапе: `name`, `phone`, application status и privacy acknowledgement/version metadata |
 | CRM view | производный status и timeline с контролем доступа |
 
 ### Что не должно собираться
@@ -1069,6 +1068,7 @@ traffic source
 - email до application;
 - телефон до application;
 - email automation;
+- свободное описание ситуации;
 - регистрация, пароль и аккаунт;
 - повторный запрос Telegram username для идентификации;
 - адрес, документы и финансовые данные;
@@ -1139,8 +1139,8 @@ application without further relationship: 12 months
 - три purpose-bound token: `webinar_token`, short-lived `media_token` и `application_token`;
 - token-protected lab webinar page, protected Range-streamed local media fixture, native player adapter и server-derived viewing events;
 - Playwright/Chrome E2E с отдельной PostgreSQL schema для real playback, scheduler, CTA, refresh, tabs и негативных token/seek cases;
-- application только с обязательными `name` и `situation`;
-- нейтральное предупреждение о персональных данных третьих лиц;
+- application только с обязательными `name` и `phone`;
+- privacy acknowledgement со ссылкой на опубликованную policy;
 - минимальный локальный CRM view с двумя attribution-полями и timeline;
 - in-memory storage как safe-default lab implementation;
 - PostgreSQL store для users, attribution, Telegram updates, events, applications и deletion requests;
@@ -1217,7 +1217,7 @@ Production profile требует PostgreSQL, официальный Telegram Bo
 - `webinar_invite_delivery_attempted`, `webinar_invite_sent`, `webinar_invite_delivery_failed` без подмены факта доставки фактом создания token;
 - dev transport по умолчанию, Bot API-compatible adapter без live-активации и configurable `WEBINAR_BASE_URL`;
 - три purpose-bound token с разными полномочиями, включая video-bound media access;
-- только `name` и `situation` как baseline application fields;
+- только `name` и `phone` как baseline application fields;
 - config-driven warming и заданные MVP-задержки;
 - классы `funnel_service` и `promotional`;
 - `/stop`, `/delete` и configurable retention;

@@ -30,7 +30,10 @@ function mapEvent(row) {
   return row && { id: row.id, userId: row.user_id, funnelId: row.funnel_id, eventType: row.event_type, occurredAt: iso(row.occurred_at), metadata: row.metadata, idempotencyKey: row.idempotency_key };
 }
 function mapApplication(row) {
-  return row && { id: row.id, userId: row.user_id, funnelId: row.funnel_id, status: row.status, answers: row.answers, privacyPolicyVersion: row.privacy_policy_version, consent: row.consent, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) };
+  if (!row) return null;
+  const answers = { ...row.answers };
+  if (row.phone) answers.phone = row.phone;
+  return { id: row.id, userId: row.user_id, funnelId: row.funnel_id, status: row.status, answers, privacyPolicyVersion: row.privacy_policy_version, consent: row.consent, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) };
 }
 function mapDeliveryOperation(row) {
   return row && {
@@ -528,8 +531,9 @@ export class PostgresStore {
 
   async createApplicationWithEvent({userId,funnelId,answers,consent,idempotencyKey}) {
     return this.transaction(async(db)=>{
-      let row=(await db.query(`insert into applications (id,user_id,funnel_id,status,answers,consent,privacy_policy_version,idempotency_key) values ($1,$2,$3,'submitted',$4,$5,$6,$7)
-        on conflict (funnel_id,idempotency_key) do nothing returning *`,[randomUUID(),userId,funnelId,JSON.stringify(answers),JSON.stringify(consent),consent.policyVersion,idempotencyKey])).rows[0];
+      const { phone = null, ...storedAnswers } = answers;
+      let row=(await db.query(`insert into applications (id,user_id,funnel_id,status,answers,phone,consent,privacy_policy_version,idempotency_key) values ($1,$2,$3,'submitted',$4,$5,$6,$7,$8)
+        on conflict (funnel_id,idempotency_key) do nothing returning *`,[randomUUID(),userId,funnelId,JSON.stringify(storedAnswers),phone,JSON.stringify(consent),consent.policyVersion,idempotencyKey])).rows[0];
       if (!row) {
         row=(await db.query('select * from applications where funnel_id=$1 and idempotency_key=$2',[funnelId,idempotencyKey])).rows[0];
         return {application:mapApplication(row),duplicate:true};

@@ -16,7 +16,7 @@ const breadcrumbItems = [{ label: 'Заявка' }];
 >
   <Header />
   <main class="application-page" data-api-origin={apiOrigin}>
-    <PageIntro breadcrumbs={breadcrumbItems} title="Заявка" lead="Коротко опиши ситуацию и следующий шаг, который хочешь разобрать." />
+    <PageIntro breadcrumbs={breadcrumbItems} title="Записаться на разбор" lead="Оставь имя и номер телефона. Мы свяжемся, чтобы организовать разбор." />
     <section class="application-shell shell section-space">
       <form class="application-form" data-application-form data-policy-version="draft-local-1">
         <div class="application-form__grid">
@@ -24,18 +24,17 @@ const breadcrumbItems = [{ label: 'Заявка' }];
             <span>Имя *</span>
             <input name="name" required autocomplete="name" maxlength="200" />
           </label>
-          <label class="application-form__field application-form__field--wide">
-            <span>Что происходит сейчас? *</span>
-            <textarea name="situation" required maxlength="2000"></textarea>
-            <small>Опиши только то, что нужно для заявки. Не указывай данные других людей, документы, медицинские диагнозы, данные детей или финансовые сведения.</small>
+          <label class="application-form__field">
+            <span>Телефон *</span>
+            <input name="phone" type="tel" inputmode="tel" required autocomplete="tel" maxlength="40" />
           </label>
         </div>
         <label class="application-form__consent">
           <input name="consent" type="checkbox" required />
-          <span>Соглашаюсь на обработку данных для ответа на заявку. Версии документов и юридический текст будут подключены до запуска продакшена; сейчас это локальный черновой контур.</span>
+          <span>Я ознакомился с <a href="/privacy-policy/" target="_blank" rel="noopener noreferrer">Политикой конфиденциальности</a>.</span>
         </label>
         <div class="application-form__actions">
-          <button class="button button--accent" type="submit" data-application-submit>Отправить заявку</button>
+          <button class="button button--accent" type="submit" data-application-submit>Записаться на разбор</button>
           <p class="application-form__status" data-application-status role="status">Заполнение доступно в локальном контуре после подключения сервера воронки.</p>
         </div>
       </form>
@@ -51,7 +50,7 @@ const breadcrumbItems = [{ label: 'Заявка' }];
   const submit = root?.querySelector('[data-application-submit]');
   const token = new URLSearchParams(window.location.search).get('t');
   const origin = apiOrigin.replace(/\/$/, '');
-  const fieldNames = ['name', 'situation'];
+  const fieldNames = ['name', 'phone'];
   const applicationRequestId = crypto.randomUUID();
 
   const setStatus = (message, tone = '') => {
@@ -112,7 +111,7 @@ const breadcrumbItems = [{ label: 'Заявка' }];
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error('application_failed');
       setStatus('Заявка принята в локальном контуре.', 'success');
-      form.querySelectorAll('input, textarea, select, button').forEach((control) => control.setAttribute('disabled', ''));
+      form.querySelectorAll('input, select, button').forEach((control) => control.setAttribute('disabled', ''));
     } catch {
       submit.removeAttribute('disabled');
       setStatus('Не удалось отправить заявку. Проверь локальный сервер и попробуй ещё раз.', 'error');

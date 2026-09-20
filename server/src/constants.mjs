@@ -54,7 +54,7 @@ export const FUNNEL_EVENTS = Object.freeze([
 
 export const APPLICATION_FIELDS = Object.freeze([
   'name',
-  'situation',
+  'phone',
 ]);
 
 export const PUBLIC_EVENT_METADATA_KEYS = Object.freeze([

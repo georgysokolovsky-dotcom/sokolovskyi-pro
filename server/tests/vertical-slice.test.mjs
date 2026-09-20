@@ -140,9 +140,7 @@ test('happy path keeps the approved event model from Telegram Start through CRM 
       idempotencyKey: 'application-1',
       answers: {
         name: 'Тестовый пользователь',
-        situation: 'Техническая проверка пути',
-        phone: '+000000000',
-        email: 'must-not-be-stored@example.com',
+        phone: '+34 612 345 678',
       },
       consent: { accepted: true, policyVersion: 'fixture-1', source: 'local-test' },
     }),
@@ -178,7 +176,7 @@ test('happy path keeps the approved event model from Telegram Start through CRM 
   assert.equal(lead.body.lead.webinar.maxProgress, 75);
   assert.deepEqual(lead.body.lead.application.answers, {
     name: 'Тестовый пользователь',
-    situation: 'Техническая проверка пути',
+    phone: '+34612345678',
   });
 
   const dashboard = await request(server, '/v1/admin/dashboard', { headers: { 'x-admin-local-key': adminKey } });
@@ -304,7 +302,7 @@ test('webinar and application tokens are purpose-bound', async (t) => {
   assert.equal(webinarWithApplicationToken.response.status, 401);
   const applicationWithWebinarToken = await request(server, '/v1/applications', {
     method: 'POST',
-    body: JSON.stringify({ token: webinarToken, answers: { name: 'X', situation: 'Y' }, consent: { accepted: true, policyVersion: '1', source: 'test' } }),
+    body: JSON.stringify({ token: webinarToken, answers: { name: 'X', phone: '+34612345678' }, consent: { accepted: true, policyVersion: '1', source: 'test' } }),
   });
   assert.equal(applicationWithWebinarToken.response.status, 401);
 });
@@ -345,7 +343,7 @@ test('invalid application does not create application_submitted and warming rule
     method: 'POST',
     body: JSON.stringify({
       token: access.body.token,
-      answers: { name: '', situation: '' },
+      answers: { name: '', phone: '' },
       consent: { accepted: true, policyVersion: 'fixture-1', source: 'local-test' },
     }),
   });

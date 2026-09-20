@@ -21,6 +21,8 @@ import { createMenApplicationUrlProvider } from '../application/access-url.mjs';
 const sourcePattern = /^[a-z0-9_-]{1,64}$/i;
 const maxTextLength = 2000;
 const maxNameLength = 200;
+const maxPhoneInputLength = 40;
+const normalizedPhonePattern = /^\+?[0-9]{7,15}$/;
 const tokenTtlSeconds = 60 * 60;
 const minimumMediaTokenTtlSeconds = 15 * 60;
 const mediaPlaybackBufferSeconds = 10 * 60;
@@ -56,17 +58,20 @@ function sanitizeAnswers(answers = {}) {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
     throw new FunnelError('invalid_input', 'Invalid answers');
   }
+  const unknownFields = Object.keys(answers).filter((field) => !APPLICATION_FIELDS.includes(field));
+  if (unknownFields.length) throw new FunnelError('invalid_input', 'Unexpected application field');
   const sanitized = {};
   for (const field of APPLICATION_FIELDS) {
     if (answers[field] == null || answers[field] === '') continue;
     if (typeof answers[field] !== 'string') throw new FunnelError('invalid_input', `Invalid ${field}`);
     const value = answers[field].trim();
-    const max = field === 'name' ? maxNameLength : maxTextLength;
+    const max = field === 'name' ? maxNameLength : maxPhoneInputLength;
     if (value.length > max) throw new FunnelError('invalid_input', `Invalid ${field}`);
-    sanitized[field] = value;
+    sanitized[field] = field === 'phone' ? value.replace(/[\s().-]/g, '') : value;
   }
   if (!sanitized.name) throw new FunnelError('invalid_input', 'Name is required');
-  if (!sanitized.situation) throw new FunnelError('invalid_input', 'Situation is required');
+  if (!sanitized.phone) throw new FunnelError('invalid_input', 'Phone is required');
+  if (!normalizedPhonePattern.test(sanitized.phone)) throw new FunnelError('invalid_input', 'Invalid phone');
   return sanitized;
 }
 

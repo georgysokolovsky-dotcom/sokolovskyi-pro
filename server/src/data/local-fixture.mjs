@@ -151,7 +151,7 @@ export const localFixture = Object.freeze({
       name: 'application_follow_up',
       role: 'warming',
       messageClass: 'promotional',
-      text: 'Если вы готовы описать ситуацию для разбора, откройте короткую заявку.',
+      text: 'Если вы готовы записаться на разбор, откройте короткую заявку. В ней нужны только имя и номер телефона.',
       buttons: [{ type: 'signed_application', label: 'Открыть заявку' }],
       status: 'active',
       version: 1,

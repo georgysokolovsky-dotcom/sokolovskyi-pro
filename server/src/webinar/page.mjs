@@ -39,7 +39,7 @@ export function renderWebinarPage({ webinar }) {
       <video controls playsinline preload="metadata" data-player></video>
       <p class="progress" data-progress>Просмотр ещё не начат.</p>
       <div class="cta">
-        <p>Если хотите разобрать свою ситуацию, перейдите к короткой заявке. В ней остаются только имя и описание ситуации.</p>
+        <p>Если хотите записаться на разбор, перейдите к короткой заявке. В ней нужны только имя и номер телефона.</p>
         <button type="button" data-cta>Перейти к заявке</button>
       </div>
       <p class="error" data-error hidden>Не удалось сохранить действие. Обновите страницу и попробуйте ещё раз.</p>

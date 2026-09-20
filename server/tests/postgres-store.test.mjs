@@ -89,7 +89,11 @@ integrationTest('Postgres store persists the full funnel and suppresses update d
   assert.equal((await storeA.getTelegramUpdate('men_webinar_v1', 123)).status, 'completed');
   await flowA.recordTokenEvent({ token: first.webinar.token, eventType: 'cta_clicked', idempotencyKey: 'postgres-cta', metadata: { placement: 'webinar' } });
   const applicationToken = await flowA.createApplicationToken({ token: first.webinar.token });
-  await flowA.submitApplication({ token: applicationToken.token, idempotencyKey: 'postgres-application', answers: { name: 'Test', situation: 'Persistent situation', email: 'ignored@example.com' }, consent: { accepted: true, policyVersion: 'test-1', source: 'integration-test' } });
+  await flowA.submitApplication({ token: applicationToken.token, idempotencyKey: 'postgres-application', answers: { name: 'Test', phone: '+34 (612) 345-678' }, consent: { accepted: true, policyVersion: 'test-1', source: 'integration-test' } });
+  const legacy = await flowA.handleTelegramStart({ telegramUserId: 7003, firstName: 'Legacy', languageCode: 'ru', startParameter: 'article_wife_cheating', updateId: 126 });
+  await storeA.createApplicationWithEvent({ userId: legacy.userId, funnelId: legacy.funnelId,
+    answers: { name: 'Legacy', situation: 'Existing staging situation' },
+    consent: { accepted: true, policyVersion: 'legacy-v1', source: 'legacy-staging' }, idempotencyKey: 'legacy-staging-application' });
   await flowA.requestDataDeletion({ telegramUserId: 7001 });
   await storeA.close();
 
@@ -106,7 +110,8 @@ integrationTest('Postgres store persists the full funnel and suppresses update d
   assert.equal(lead.telegram.telegramChatId, '7001');
   assert.equal(lead.bonus.status, 'sent');
   assert.equal(lead.events.some((event) => event.eventType === 'webinar_invite_sent'), true);
-  assert.deepEqual(lead.application.answers, { name: 'Test', situation: 'Persistent situation' });
+  assert.deepEqual(lead.application.answers, { name: 'Test', phone: '+34612345678' });
+  assert.deepEqual((await storeB.getApplicationForUser(legacy.userId)).answers, { name: 'Legacy', situation: 'Existing staging situation' });
   assert.equal(lead.deletionRequest.status, 'requested');
 
   const direct = await flowB.handleTelegramStart({ telegramUserId: 7001, firstName: 'Restart', languageCode: 'ru', startParameter: 'instagram_men_webinar', updateId: 124 });
@@ -115,7 +120,7 @@ integrationTest('Postgres store persists the full funnel and suppresses update d
 
   const raceDeliveries = [];
   const raceFlow = createFlow(storeB, raceDeliveries);
-  const raceInput = { telegramUserId: 7002, firstName: 'Race', languageCode: 'ru', startParameter: 'instagram_men_webinar', updateId: 125 };
+  const raceInput = { telegramUserId: 7002, firstName: 'Race', languageCode: 'ru', startParameter: 'instagram_men_webinar', updateId: 127 };
   const raced = await Promise.all([raceFlow.handleTelegramStart(raceInput), raceFlow.handleTelegramStart(raceInput)]);
   assert.deepEqual(raced.map((item) => item.duplicate).sort(), [false, true]);
   assert.deepEqual(raceDeliveries, ['entry_notice', 'bonus', 'webinar_invite']);

@@ -297,16 +297,16 @@ test('watched 75 schedules follow-up once; CTA and application use specialized e
   assert.equal(applicationStarted.response.status, 201);
   const application = await post(server, '/v1/applications', {
     token: token.body.token, idempotencyKey: 'webinar-page-application',
-    answers: { name: 'Тест', situation: 'Проверка', email: 'ignored@example.com' },
+    answers: { name: 'Тест', phone: '+34 612 345 678' },
     consent: { accepted: true, policyVersion: 'fixture-1', source: 'webinar-page-test' },
   });
   assert.equal(application.response.status, 201);
   const duplicateApplication = await post(server, '/v1/applications', {
     token: token.body.token, idempotencyKey: 'different-browser-request',
-    answers: { name: 'Другое', situation: 'Не должно перезаписать первую заявку' },
+    answers: { name: 'Другое', phone: '050 123 45 67' },
     consent: { accepted: true, policyVersion: 'fixture-1', source: 'second-tab' },
   });
   assert.equal(duplicateApplication.response.status, 200);
   assert.equal(duplicateApplication.body.duplicate, true);
-  assert.deepEqual((await server.store.getApplicationForUser(started.userId)).answers, { name: 'Тест', situation: 'Проверка' });
+  assert.deepEqual((await server.store.getApplicationForUser(started.userId)).answers, { name: 'Тест', phone: '+34612345678' });
 });
