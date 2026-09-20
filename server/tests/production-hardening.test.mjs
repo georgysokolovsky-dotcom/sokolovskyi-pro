@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { rootCertificates } from 'node:tls';
 import { loadRuntimeConfig } from '../src/config/runtime-config.mjs';
 import { resolveDailyWebinarStarsSession } from '../src/webinarstars/daily-session.mjs';
 import { createApp } from '../src/http/app.mjs';
@@ -20,10 +21,11 @@ const production = {
   WEBINARSTARS_CORRELATION_SECRET: 'test-correlation', WEBINARSTARS_WEBINAR_ID: '31195',
   WEBINARSTARS_REGISTRATION_URL: 'https://efir.webinar-stars.com/webinar/5071c97bc4cfde5/',
   WEBINARSTARS_TIME_ZONE: 'Europe/Kiev',
+  DATABASE_SSL_CA_BASE64: Buffer.from(rootCertificates[0]).toString('base64'),
 };
 
 test('production config fails closed and never inherits staging identity or static schedule', () => {
-  for (const name of ['DATABASE_URL', 'PUBLIC_APPLICATION_ORIGIN', 'PRIVACY_POLICY_URL', 'APPLICATION_CONSENT_VERSION', 'APPLICATION_CONSENT_TEXT']) {
+  for (const name of ['DATABASE_URL', 'DATABASE_SSL_CA_BASE64', 'PUBLIC_APPLICATION_ORIGIN', 'PRIVACY_POLICY_URL', 'APPLICATION_CONSENT_VERSION', 'APPLICATION_CONSENT_TEXT']) {
     const broken = { ...production }; delete broken[name];
     assert.throws(() => loadRuntimeConfig(broken), new RegExp(name));
   }
@@ -36,7 +38,7 @@ test('production config fails closed and never inherits staging identity or stat
   assert.equal(config.adminApiEnabled, false);
   assert.equal(config.webinarStars.scheduleMode, 'daily');
   assert.equal(config.webinarStars.scheduledStart, null);
-  assert.deepEqual(config.databasePoolOptions.ssl, { rejectUnauthorized: true });
+  assert.deepEqual(config.databasePoolOptions.ssl, { rejectUnauthorized: true, ca: `${rootCertificates[0].trim()}\n` });
   assert.throws(() => loadRuntimeConfig({ ...production, DATABASE_SSL_MODE: 'disable' }), /DATABASE_SSL_MODE/);
   assert.throws(() => loadRuntimeConfig({ ...production, DATABASE_URL: 'postgresql:\/\/db.invalid\/men_funnel_staging_e2e' }), /separate database/);
   assert.throws(() => loadRuntimeConfig({ ...production, STAGING_ALLOWED_TELEGRAM_USER_ID: '123456789' }), /Staging identity/);

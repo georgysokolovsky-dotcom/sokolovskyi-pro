@@ -8,6 +8,7 @@
     "dev": "node --watch src/index.mjs",
     "test": "node --test",
     "test:postgres": "node --test tests/postgres-store.test.mjs tests/delivery-recovery.test.mjs tests/warming-scheduler.test.mjs tests/warming-application-suppression.test.mjs tests/webinar-progress-postgres.test.mjs tests/webinarstars-postgres.test.mjs tests/direct-telegram-start-postgres.test.mjs tests/migration-runner-postgres.test.mjs",
+    "test:production-db-tls": "node scripts/database-tls-probe.mjs",
     "test:browser": "playwright test --config=playwright.config.mjs",
     "test:mux-staging": "node --env-file-if-exists=../.env.staging.local node_modules/@playwright/test/cli.js test --config=playwright.mux.config.mjs",
     "migrate": "node scripts/migrate.mjs",
