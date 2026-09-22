@@ -25,7 +25,7 @@ if (!config.webinarStarsFollowUpEnabled || !config.telegramOutboundEnabled) {
       applicationUrlProvider: createMenApplicationUrlProvider({ signingSecret: config.signingSecret,
         applicationReference: `${config.publicApplicationOrigin}/application` }),
       transport, templates: APPROVED_WEBINARSTARS_FOLLOW_UP_TEMPLATES,
-      allowedUserId: config.allowedTelegramUserId,
+      allowedTelegramUserId: config.allowedTelegramUserId,
       logger: { info: (entry) => console.log(JSON.stringify(entry)) },
     });
     console.log(JSON.stringify({ event: 'webinarstars_followup_summary', ...await scheduler.run() }));

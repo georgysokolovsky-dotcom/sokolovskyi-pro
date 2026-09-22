@@ -116,7 +116,10 @@ test('Telegram outbound and follow-up remain separately gated', async () => {
   const transport = { async sendMessage() { calls += 1; return { provider: 'fake', messageId: '1' }; } };
   await assert.rejects(guardTelegramOutbound(transport, { enabled: false }).sendMessage({ telegramChatId: '1' }), /disabled/);
   await assert.rejects(guardTelegramOutbound(transport, { enabled: true, allowedTelegramUserId: '123' }).sendMessage({ telegramChatId: '999' }), /not_allowed/);
-  assert.equal(calls, 0);
+  const guarded = guardTelegramOutbound(transport, { enabled: true, allowedTelegramUserId: '123' });
+  await guarded.sendMessage({ telegramUserId: '123', telegramChatId: '-100123' });
+  await assert.rejects(guarded.sendMessage({ telegramUserId: '999', telegramChatId: '123' }), /not_allowed/);
+  assert.equal(calls, 1);
   assert.equal(loadRuntimeConfig(production).webinarStarsFollowUpEnabled, false);
   const active = loadRuntimeConfig({ ...production, PRODUCTION_CANARY_ENABLED: 'true', PRODUCTION_CANARY_ALLOWED_TELEGRAM_USER_ID: '123456789',
     TELEGRAM_OUTBOUND_ENABLED: 'true', WEBINARSTARS_FOLLOWUP_ENABLED: 'true' });

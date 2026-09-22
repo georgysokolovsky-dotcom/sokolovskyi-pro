@@ -230,6 +230,12 @@ export class PostgresStore {
       where id=$1 and status='processing' and lease_owner=$2 and request_started_at is null returning *`,[id,workerId])).rows[0]);
   }
 
+  async releaseProviderFollowUp({ id, workerId }) {
+    return mapProviderFollowUp((await this.pool.query(`update provider_follow_ups set status='scheduled',cancellation_reason=null,
+      lease_owner=null,lease_started_at=null,lease_expires_at=null,updated_at=now()
+      where id=$1 and status='processing' and lease_owner=$2 and request_started_at is null returning *`,[id,workerId])).rows[0]);
+  }
+
   async finishProviderFollowUp({ id, workerId, status, cancellationReason=null, provider=null, providerMessageId=null }) {
     return mapProviderFollowUp((await this.pool.query(`update provider_follow_ups set status=$3,cancellation_reason=$4,provider=$5,
       provider_message_id=$6,delivered_at=case when $3='delivered' then now() else null end,lease_owner=null,

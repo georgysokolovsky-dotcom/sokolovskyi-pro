@@ -50,15 +50,31 @@ export function createWebinarStarsLifecycle({ store, config, now = () => new Dat
 }
 
 export function createWebinarStarsFollowUpScheduler({ store, config, experienceProvider, applicationUrlProvider = null, transport, templates = {}, allowedUserId = null,
+  allowedTelegramUserId = null,
   now = () => new Date(), workerId = `webinarstars-follow-up-${randomUUID()}`, leaseMs = 30_000, logger = null } = {}) {
   if (!store || !config || !experienceProvider || !transport) throw new Error('WebinarStars follow-up scheduler dependencies are required');
 
   async function run({ limit = 100 } = {}) {
-    const result = { workerId, claimed: 0, delivered: 0, cancelled: 0, suppressed: 0, blockedTemplate: 0, deliveryUnknown: 0, failed: 0 };
+    const result = { workerId, claimed: 0, delivered: 0, cancelled: 0, suppressed: 0, deferred: 0, blockedTemplate: 0, deliveryUnknown: 0, failed: 0 };
     while (result.claimed < limit) {
       const operation = await store.claimProviderFollowUp({ workerId, leaseMs, now: now().toISOString(), userId: allowedUserId });
       if (!operation) break;
       result.claimed += 1;
+      const user = await store.getUser(operation.funnelEntryId);
+      const telegram = user?.id === operation.userId ? await store.getTelegramUser(user.id) : null;
+      const recipientFailure = !user || user.id !== operation.userId
+        ? 'follow_up_user_missing'
+        : !telegram?.telegramUserId || !telegram?.telegramChatId
+          ? 'telegram_identity_missing'
+          : allowedTelegramUserId != null && String(telegram.telegramUserId) !== String(allowedTelegramUserId)
+            ? 'telegram_user_not_allowed'
+            : null;
+      if (recipientFailure) {
+        await store.releaseProviderFollowUp({ id: operation.id, workerId });
+        logger?.info?.({ event: 'webinarstars_followup_deferred', reason: recipientFailure });
+        result.deferred += 1;
+        break;
+      }
       const application = await store.getApplicationForUser(operation.userId);
       if (application?.status === 'submitted') {
         await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'cancelled', cancellationReason: 'application_submitted' });
@@ -88,9 +104,6 @@ export function createWebinarStarsFollowUpScheduler({ store, config, experienceP
         continue;
       }
       try {
-        const user = await store.getUser(operation.userId);
-        const telegram = await store.getTelegramUser(operation.userId);
-        if (!user || !telegram) throw new Error('delivery_identity_missing');
         const lateApplication = await store.getApplicationForUser(operation.userId);
         if (lateApplication?.status === 'submitted') {
           await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'cancelled', cancellationReason: 'application_submitted' });
@@ -114,7 +127,8 @@ export function createWebinarStarsFollowUpScheduler({ store, config, experienceP
         if (Object.keys(variables).some((key) => !template.variables.includes(key))) throw new Error('template_variable_not_allowed');
         const started = await store.markProviderFollowUpRequestStarted({ id: operation.id, workerId });
         if (!started) throw new Error('follow_up_lease_lost');
-        const sent = await transport.sendMessage({ userId: user.id, funnelId: user.funnelId, telegramChatId: telegram.telegramChatId,
+        const sent = await transport.sendMessage({ userId: user.id, funnelId: user.funnelId,
+          telegramUserId: telegram.telegramUserId, telegramChatId: telegram.telegramChatId,
           message: { role: 'webinar_follow_up', text: template.text, buttons: [{ type: 'url', label: template.ctaLabel ?? 'Перейти', url: variables[template.variables[0]] }], templateId: template.templateId, variables } });
         await store.finishProviderFollowUp({ id: operation.id, workerId, status: 'delivered', provider: sent.provider, providerMessageId: sent.messageId });
         logger?.info?.({ event: 'webinarstars_followup_delivered', templateId: template.templateId });

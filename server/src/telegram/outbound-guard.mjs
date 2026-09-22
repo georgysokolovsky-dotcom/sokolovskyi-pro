@@ -3,7 +3,8 @@ export function guardTelegramOutbound(transport, { enabled = true, allowedTelegr
     provider: transport.provider,
     async sendMessage(payload) {
       if (!enabled) throw new Error('telegram_outbound_disabled');
-      if (allowedTelegramUserId != null && String(payload.telegramChatId) !== String(allowedTelegramUserId)) {
+      const recipientTelegramUserId = payload.telegramUserId ?? payload.telegramChatId;
+      if (allowedTelegramUserId != null && String(recipientTelegramUserId) !== String(allowedTelegramUserId)) {
         throw new Error('telegram_user_not_allowed');
       }
       return transport.sendMessage(payload);

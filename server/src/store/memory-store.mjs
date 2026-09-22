@@ -166,6 +166,15 @@ export class MemoryStore {
     return clone(record);
   }
 
+  releaseProviderFollowUp({ id, workerId }) {
+    const record = this.providerFollowUps.get(id);
+    if (!record || record.status !== 'processing' || record.leaseOwner !== workerId || record.requestStartedAt) return null;
+    const timestamp = this.now().toISOString();
+    Object.assign(record, { status: 'scheduled', cancellationReason: null, leaseOwner: null,
+      leaseStartedAt: null, leaseExpiresAt: null, updatedAt: timestamp });
+    return clone(record);
+  }
+
   finishProviderFollowUp({ id, workerId, status, cancellationReason = null, provider = null, providerMessageId = null }) {
     const record = this.providerFollowUps.get(id);
     if (!record || record.status !== 'processing' || record.leaseOwner !== workerId) return null;

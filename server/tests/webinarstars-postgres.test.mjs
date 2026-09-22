@@ -151,11 +151,18 @@ integrationTest('PostgreSQL persists WebinarStars correlation, claims concurrent
   assert.equal((await storeC.listProviderFollowUps()).length,1);
   const sent=[]; const deliveryNow=()=>new Date('2026-09-15T21:21:00Z');
   const applicationUrlProvider=createMenApplicationUrlProvider({signingSecret:'pg-application-signing',applicationReference:'https://provider.invalid/application',now:deliveryNow});
-  const scheduler=(store,workerId)=>createWebinarStarsFollowUpScheduler({store,config,experienceProvider:createWebinarStarsExperienceProvider({store,config}),
+  const scheduler=(store,workerId,allowedTelegramUserId=null)=>createWebinarStarsFollowUpScheduler({store,config,
+    experienceProvider:createWebinarStarsExperienceProvider({store,config}),allowedTelegramUserId,
     applicationUrlProvider,templates:WEBINARSTARS_STAGING_FOLLOW_UP_TEMPLATES,workerId,now:deliveryNow,transport:{async sendMessage(payload){sent.push(payload);return {provider:'fake',messageId:`pg-${sent.length}`};}}});
-  const [deliveryA,deliveryB]=await Promise.all([scheduler(storeB,'delivery-a').run(),scheduler(storeC,'delivery-b').run()]);
+  const denied=await scheduler(storeB,'delivery-denied','999999999').run();
+  assert.equal(denied.deferred,1);
+  assert.equal(sent.length,0);
+  assert.equal((await storeB.listProviderFollowUps())[0].status,'scheduled');
+  const [deliveryA,deliveryB]=await Promise.all([scheduler(storeB,'delivery-a','81001').run(),scheduler(storeC,'delivery-b','81001').run()]);
   assert.equal(deliveryA.delivered+deliveryB.delivered,1);
   assert.equal(sent.length,1);
+  assert.equal(sent[0].userId,claimed.user.id);
+  assert.equal(sent[0].telegramUserId,'81001');
   assert.equal((await storeB.listProviderFollowUps())[0].status,'delivered');
 
   const users={}; const initialUrls={};
