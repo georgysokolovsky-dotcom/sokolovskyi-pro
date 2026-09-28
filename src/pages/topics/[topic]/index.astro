@@ -5,6 +5,7 @@ import Header from '../../../components/Header.astro';
 import Footer from '../../../components/Footer.astro';
 import Breadcrumbs from '../../../components/Breadcrumbs.astro';
 import ArticleCta from '../../../components/ArticleCta.astro';
+import IzmenaPillar from '../../../components/IzmenaPillar.astro';
 import { topicList, getTopicBySlug } from '../../../data/topics.js';
 import { publishedArticles, sortArticles, articleCardData } from '../../../lib/articles.js';
 import { validateArticleEntries } from '../../../lib/content-validation.js';
@@ -17,18 +18,21 @@ export async function getStaticPaths() {
   const published = publishedArticles(entries);
   return topicList.flatMap((topic) => {
     const articles = sortArticles(published.filter((entry) => entry.data.topic === topic.id));
-    return articles.length > 0 ? [{ params: { topic: topic.slug }, props: { topic, articles } }] : [];
+    return articles.length > 0 ? [{ params: { topic: topic.slug }, props: { topic, articles, allArticles: published } }] : [];
   });
 }
 
-const { topic, articles } = Astro.props;
+const { topic, articles, allArticles } = Astro.props;
 const canonical = absoluteUrl(`/topics/${topic.slug}/`);
 const breadcrumbItems = [{ label: 'Темы', href: '/topics/' }, { label: topic.label }];
+const isIzmenaPillar = topic.id === 'izmena';
+const title = topic.seoTitle ?? `${topic.label} — PRO Мужчин`;
 ---
-<BaseLayout title={`${topic.label} — PRO Мужчин`} description={topic.description} canonical={canonical} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+<BaseLayout title={title} description={topic.description} canonical={canonical} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
   <Header />
   <main class="topic-page">
-    <section class="topic-hero shell">
+    {isIzmenaPillar ? <IzmenaPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : <>
+      <section class="topic-hero shell">
       <Breadcrumbs items={breadcrumbItems} />
       <h1>{topic.label}</h1>
       <p>{topic.description}</p>
@@ -56,6 +60,7 @@ const breadcrumbItems = [{ label: 'Темы', href: '/topics/' }, { label: topic
       </div>
     </section>
     <section class="webinar-band"><div class="shell webinar-band__inner"><div class="play-mark" aria-hidden="true"><span>▷</span></div><div class="webinar-band__copy"><p class="section-label">Бесплатный вебинар</p><h2>3 шага как стать мужчиной, с которым считаются, ценят и боятся потерять</h2></div><ArticleCta placement="footer" articleId={`topic_${topic.id}`} topic={topic.id}>Посмотреть вебинар</ArticleCta></div></section>
+    </>}
   </main>
   <Footer />
 </BaseLayout>

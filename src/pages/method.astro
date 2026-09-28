@@ -4,12 +4,14 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import PageIntro from '../components/PageIntro.astro';
 import WebinarBand from '../components/WebinarBand.astro';
+import { pageMeta } from '../data/pages.js';
 import { absoluteUrl } from '../lib/site-routes.js';
 import { buildBreadcrumbJsonLd } from '../lib/seo.js';
 
 const breadcrumbItems = [{ label: 'Подход' }];
+const meta = pageMeta.method;
 ---
-<BaseLayout title="Подход к работе — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/method/')} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+<BaseLayout title={meta.title} description={meta.description} canonical={absoluteUrl('/method/')} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
   <Header />
   <main>
     <PageIntro breadcrumbs={breadcrumbItems} title="Подход к работе" lead="Разбираем не только то, что делает партнёрша. Смотрим, что происходит с тобой, какие действия усиливают проблему и какое решение ты действительно готов принять." />

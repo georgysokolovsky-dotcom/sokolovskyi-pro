@@ -17,7 +17,7 @@
     "check:routes": "node scripts/check-routes.mjs",
     "check:links": "node scripts/check-internal-links.mjs",
     "check:public-boundary": "node scripts/check-public-boundary.mjs",
-    "check:seo": "node scripts/compare-astro-baseline.mjs"
+    "check:seo": "node scripts/compare-astro-baseline.mjs && node scripts/check-seo-architecture.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.2.0",

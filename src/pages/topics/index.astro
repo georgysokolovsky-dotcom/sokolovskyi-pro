@@ -5,6 +5,7 @@ import Header from '../../components/Header.astro';
 import Footer from '../../components/Footer.astro';
 import PageIntro from '../../components/PageIntro.astro';
 import WebinarBand from '../../components/WebinarBand.astro';
+import { pageMeta } from '../../data/pages.js';
 import { topicList } from '../../data/topics.js';
 import { publishedArticles } from '../../lib/articles.js';
 import { validateArticleEntries } from '../../lib/content-validation.js';
@@ -15,8 +16,9 @@ const entries = await getCollection('articles');
 validateArticleEntries(entries);
 const articles = publishedArticles(entries);
 const populatedTopics = topicList.filter((topic) => articles.some((entry) => entry.data.topic === topic.id));
+const meta = pageMeta.topics;
 ---
-<BaseLayout title="Темы — PRO Мужчин" description="Разделы PRO Мужчин по ситуациям, с которыми сталкиваются мужчины в кризисе отношений." canonical={absoluteUrl('/topics/')} jsonLd={[buildBreadcrumbJsonLd([{ label: 'Темы', href: '/topics/' }])]}>
+<BaseLayout title={meta.title} description={meta.description} canonical={absoluteUrl('/topics/')} jsonLd={[buildBreadcrumbJsonLd([{ label: 'Темы', href: '/topics/' }])]}>
   <Header />
   <main>
     <PageIntro breadcrumbs={[{ label: 'Темы' }]} title="Темы" lead="Выбери ситуацию, которая сейчас ближе всего к тебе. Каждый раздел ведёт к связанным материалам." />

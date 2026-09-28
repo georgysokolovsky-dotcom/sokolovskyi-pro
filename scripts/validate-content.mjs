@@ -33,6 +33,7 @@ for (const file of files) {
   if (!data.description) errors.push(`${file}: empty description`);
   if (!data.slug) errors.push(`${file}: empty slug`);
   if (!data.topic || !publicTopics.has(data.topic)) errors.push(`${file}: unknown topic ${data.topic ?? '(empty)'}`);
+  if (data.pillar && !publicTopics.has(data.pillar)) errors.push(`${file}: unknown pillar ${data.pillar}`);
   if (!data.author || !publicAuthors.has(data.author)) errors.push(`${file}: unknown author ${data.author ?? '(empty)'}`);
   if (!statuses.has(data.status)) errors.push(`${file}: invalid status ${data.status ?? '(empty)'}`);
   if (data.datePublished !== null && Number.isNaN(new Date(data.datePublished).getTime())) errors.push(`${file}: invalid datePublished`);

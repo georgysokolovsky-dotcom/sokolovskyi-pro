@@ -14,6 +14,7 @@ export function validateArticleEntries(entries, { origin = 'https://sokolovskyi.
     if (!data.description) errors.push(`${sourceId}: missing description`);
     if (!data.slug) errors.push(`${sourceId}: missing slug`);
     if (!data.topic || !topics[data.topic]) errors.push(`${sourceId}: unknown topic ${data.topic ?? '(empty)'}`);
+    if (data.pillar && !topics[data.pillar]) errors.push(`${sourceId}: unknown pillar ${data.pillar}`);
     if (!data.author || !authors[data.author]) errors.push(`${sourceId}: unknown author ${data.author ?? '(empty)'}`);
     if (!data.status) errors.push(`${sourceId}: missing status`);
     if (data.slug) {

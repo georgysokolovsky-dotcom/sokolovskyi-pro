@@ -6,11 +6,9 @@ export function GET() {
   const body = [
     'User-agent: *',
     'Allow: /',
-    'Disallow: /go/',
     '',
     'User-agent: OAI-SearchBot',
     'Allow: /',
-    'Disallow: /go/',
     '',
     `Sitemap: ${site.origin}/sitemap.xml`,
     '',

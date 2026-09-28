@@ -1,14 +1,12 @@
-export const defaultDescription = 'PRO Мужчин — авторский ресурс для мужчин в кризисе отношений.';
-
 export const pageMeta = {
   home: {
     title: 'PRO Мужчин — когда отношения рушатся, важно не потерять себя',
-    description: defaultDescription,
+    description: 'Статьи для мужчин об измене, разводе, ревности и восстановлении отношений. Без давления и обещаний.',
   },
-  about: { title: 'Об авторе — PRO Мужчин', description: defaultDescription },
-  method: { title: 'Подход к работе — PRO Мужчин', description: defaultDescription },
-  webinar: { title: 'Бесплатный вебинар — PRO Мужчин', description: defaultDescription },
-  articles: { title: 'Все статьи — PRO Мужчин', description: defaultDescription },
-  topics: { title: 'Темы — PRO Мужчин', description: defaultDescription },
-  contacts: { title: 'Контакты — PRO Мужчин', description: defaultDescription },
+  about: { title: 'Об авторе — PRO Мужчин', description: 'Георгий Соколовский — ментор для мужчин. Опыт, жизненный контекст и принципы работы с кризисом отношений.' },
+  method: { title: 'Подход к работе — PRO Мужчин', description: 'Как мужчина разбирает своё состояние, повторяющиеся сценарии, границы и действия в кризисе отношений.' },
+  webinar: { title: 'Бесплатный вебинар — PRO Мужчин', description: 'Вебинар о состоянии, личных границах и решениях мужчины в кризисе отношений.' },
+  articles: { title: 'Все статьи — PRO Мужчин', description: 'Статьи об измене, разводе, ревности, детях после развода и восстановлении отношений.' },
+  topics: { title: 'Темы — PRO Мужчин', description: 'Темы для мужчин в кризисе отношений: измена, развод, ревность, возвращение жены и отношения с детьми.' },
+  contacts: { title: 'Контакты — PRO Мужчин', description: 'Как перейти к вебинару и связаться по вопросам дальнейшей работы в проекте PRO Мужчин.' },
 };

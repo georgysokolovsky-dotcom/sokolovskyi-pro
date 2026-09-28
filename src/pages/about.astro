@@ -6,12 +6,14 @@ import PageIntro from '../components/PageIntro.astro';
 import AuthorPortrait from '../components/AuthorPortrait.astro';
 import ArrowLink from '../components/ArrowLink.astro';
 import WebinarBand from '../components/WebinarBand.astro';
+import { pageMeta } from '../data/pages.js';
 import { absoluteUrl } from '../lib/site-routes.js';
 import { buildBreadcrumbJsonLd, buildPersonJsonLd } from '../lib/seo.js';
 
 const breadcrumbItems = [{ label: 'Об авторе' }];
+const meta = pageMeta.about;
 ---
-<BaseLayout title="Об авторе — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/about/')} jsonLd={[buildPersonJsonLd(), buildBreadcrumbJsonLd(breadcrumbItems)]}>
+<BaseLayout title={meta.title} description={meta.description} canonical={absoluteUrl('/about/')} jsonLd={[buildPersonJsonLd(), buildBreadcrumbJsonLd(breadcrumbItems)]}>
   <Header />
   <main>
     <PageIntro breadcrumbs={breadcrumbItems} title="Георгий Соколовский — ментор для мужчин" lead="Помогаю мужчинам выйти из кризиса после измены, предательства или развода и снова стать уверенными в себе." />

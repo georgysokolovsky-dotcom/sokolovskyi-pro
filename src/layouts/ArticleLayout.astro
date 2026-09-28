@@ -2,6 +2,7 @@
 import BaseLayout from './BaseLayout.astro';
 import ArticleCta from '../components/ArticleCta.astro';
 import ArticleMeta from '../components/ArticleMeta.astro';
+import AuthorBio from '../components/AuthorBio.astro';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 import RelatedArticles from '../components/RelatedArticles.astro';
 import Footer from '../components/Footer.astro';
@@ -25,6 +26,7 @@ const summary = (entry.body ?? '').match(/^- \[([^\]]+)\]\(#([^\)]+)\)/gm)?.map(
   const match = line.match(/^- \[([^\]]+)\]\(#([^\)]+)\)/);
   return match ? { label: match[1], id: match[2] } : null;
 }).filter(Boolean) ?? [];
+const showGeneratedSummary = slug !== 'prostit-ili-uyti-posle-izmeny';
 const authorRecord = authors[author];
 const jsonLd = [
   buildArticleJsonLd(entry, topic),
@@ -38,15 +40,16 @@ const jsonLd = [
       <article class="article-content">
         <Breadcrumbs items={breadcrumbItems} />
         <h1>{title}</h1>
-        <ArticleMeta author={authorRecord.name} datePublished={datePublished} dateModified={dateModified} />
-        <div class="article-summary" aria-label="Краткое содержание">
+        <ArticleMeta author={authorRecord.name} authorUrl={authorRecord.url} datePublished={datePublished} dateModified={dateModified} />
+        {showGeneratedSummary && <div class="article-summary" aria-label="Краткое содержание">
           <strong>В статье:</strong>
           {summary.map((item) => <a href={`#${item.id}`}>{item.label}</a>)}
-        </div>
+        </div>}
         <div class="article-prose"><Content /></div>
-        <ArticleCta articleId={entry.data.article_id ?? slug} topic={topicId} searchIntent={searchIntent} placement="inline" />
+        <ArticleCta articleId={entry.data.article_id ?? slug} topic={topicId} searchIntent={searchIntent} placement="inline">{entry.data.cta.label}</ArticleCta>
+        <AuthorBio author={authorRecord} />
       </article>
-      {summary.length > 0 && <aside class="article-aside">
+      {showGeneratedSummary && summary.length > 0 && <aside class="article-aside">
         <p class="aside-title">В этой статье</p>
         <nav aria-label="Разделы статьи">{summary.map((item) => <a href={`#${item.id}`}>{item.label}</a>)}</nav>
         <div class="aside-note"><span>01</span><p>Читай в своём темпе. Тебе не нужно принять решение за один вечер.</p></div>

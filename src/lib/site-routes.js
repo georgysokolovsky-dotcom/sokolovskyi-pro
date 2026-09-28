@@ -5,7 +5,6 @@ export const staticIndexableRoutes = [
   '/',
   '/about/',
   '/method/',
-  '/webinar/',
   '/articles/',
   '/topics/',
   '/contacts/',

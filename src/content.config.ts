@@ -20,6 +20,7 @@ const articleSchema = z.object({
   description: z.string().min(1),
   slug: z.string().regex(/^[a-z0-9-]+$/),
   topic: z.string().min(1),
+  pillar: z.string().min(1).nullable().default(null),
   search_intent: z.string().min(1).nullable(),
   author: z.string().min(1),
   datePublished: z.coerce.date().nullable(),

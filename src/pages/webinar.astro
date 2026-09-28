@@ -4,12 +4,14 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import PageIntro from '../components/PageIntro.astro';
 import ArticleCta from '../components/ArticleCta.astro';
+import { pageMeta } from '../data/pages.js';
 import { absoluteUrl } from '../lib/site-routes.js';
-import { buildBreadcrumbJsonLd } from '../lib/seo.js';
+import { buildBreadcrumbJsonLd, robotsForPage } from '../lib/seo.js';
 
 const breadcrumbItems = [{ label: 'Бесплатный вебинар' }];
+const meta = pageMeta.webinar;
 ---
-<BaseLayout title="Бесплатный вебинар — PRO Мужчин" description="PRO Мужчин — авторский ресурс для мужчин в кризисе отношений." canonical={absoluteUrl('/webinar/')} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
+<BaseLayout title={meta.title} description={meta.description} canonical={absoluteUrl('/webinar/')} robots={robotsForPage({ indexable: false })} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
   <Header />
   <main>
     <PageIntro dark breadcrumbs={breadcrumbItems} title="3 шага как стать мужчиной, с которым считаются, ценят и боятся потерять" lead="Мужской разговор примерно на 90 минут о состоянии, повторяющихся сценариях и решениях, которые можно принимать из большей ясности.">

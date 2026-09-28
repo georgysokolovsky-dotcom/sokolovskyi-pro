@@ -1,0 +1,16 @@
+---
+import AuthorPortrait from './AuthorPortrait.astro';
+
+const { author } = Astro.props;
+---
+<aside class="author-bio" aria-label="Об авторе">
+  <div class="author-bio__portrait">
+    <AuthorPortrait alt={`Георгий Соколовский — ${author.role.toLowerCase()}`} sizes="88px" />
+  </div>
+  <div>
+    <p class="section-label">Об авторе</p>
+    <h2><a href={author.url}>{author.name}</a></h2>
+    <p>{author.bio}</p>
+    <a class="author-bio__link" href={author.url}>Об авторе и подходе <span aria-hidden="true">→</span></a>
+  </div>
+</aside>
