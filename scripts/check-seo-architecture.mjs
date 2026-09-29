@@ -156,6 +156,14 @@ for (const slug of requiredIzmenaPillarArticles) {
   if (!pillarArticles.includes(slug)) errors.push(`${slug} is missing the izmena pillar relation`);
 }
 
+const requiredZhenaHochetUyitiPillarArticles = [
+  'zhena-hochet-razvoda-chto-delat',
+  'zhena-skazala-chto-ne-lyubit',
+];
+for (const slug of requiredZhenaHochetUyitiPillarArticles) {
+  if (!pillarArticles.includes(slug)) errors.push(`${slug} is missing the zhena-hochet-uyti pillar relation`);
+}
+
 if (errors.length) {
   console.error(`SEO architecture check failed with ${errors.length} error(s):`);
   errors.forEach((error) => console.error(`- ${error}`));

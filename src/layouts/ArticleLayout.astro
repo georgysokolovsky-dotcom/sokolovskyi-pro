@@ -26,7 +26,12 @@ const summary = (entry.body ?? '').match(/^- \[([^\]]+)\]\(#([^\)]+)\)/gm)?.map(
   const match = line.match(/^- \[([^\]]+)\]\(#([^\)]+)\)/);
   return match ? { label: match[1], id: match[2] } : null;
 }).filter(Boolean) ?? [];
-const showGeneratedSummary = slug !== 'prostit-ili-uyti-posle-izmeny';
+const articlesWithInlineSummary = new Set([
+  'prostit-ili-uyti-posle-izmeny',
+  'zhena-hochet-razvoda-chto-delat',
+  'zhena-skazala-chto-ne-lyubit',
+]);
+const showGeneratedSummary = !articlesWithInlineSummary.has(slug);
 const authorRecord = authors[author];
 const jsonLd = [
   buildArticleJsonLd(entry, topic),

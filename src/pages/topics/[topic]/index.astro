@@ -6,6 +6,7 @@ import Footer from '../../../components/Footer.astro';
 import Breadcrumbs from '../../../components/Breadcrumbs.astro';
 import ArticleCta from '../../../components/ArticleCta.astro';
 import IzmenaPillar from '../../../components/IzmenaPillar.astro';
+import ZhenaHochetUyitiPillar from '../../../components/ZhenaHochetUyitiPillar.astro';
 import { topicList, getTopicBySlug } from '../../../data/topics.js';
 import { publishedArticles, sortArticles, articleCardData } from '../../../lib/articles.js';
 import { validateArticleEntries } from '../../../lib/content-validation.js';
@@ -26,12 +27,13 @@ const { topic, articles, allArticles } = Astro.props;
 const canonical = absoluteUrl(`/topics/${topic.slug}/`);
 const breadcrumbItems = [{ label: 'Темы', href: '/topics/' }, { label: topic.label }];
 const isIzmenaPillar = topic.id === 'izmena';
+const isZhenaHochetUyitiPillar = topic.id === 'zhena-hochet-uyti';
 const title = topic.seoTitle ?? `${topic.label} — PRO Мужчин`;
 ---
 <BaseLayout title={title} description={topic.description} canonical={canonical} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
   <Header />
   <main class="topic-page">
-    {isIzmenaPillar ? <IzmenaPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : <>
+    {isIzmenaPillar ? <IzmenaPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : isZhenaHochetUyitiPillar ? <ZhenaHochetUyitiPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : <>
       <section class="topic-hero shell">
       <Breadcrumbs items={breadcrumbItems} />
       <h1>{topic.label}</h1>

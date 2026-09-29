@@ -1,6 +1,8 @@
 import { articlePath } from './site-routes.js';
 
 export const articleCardOrder = [
+  'zhena-hochet-razvoda-chto-delat',
+  'zhena-skazala-chto-ne-lyubit',
   'kak-perezhit-izmenu-zheny',
   'chto-delat-v-pervye-dni-posle-izmeny',
   'razgovor-s-zhenoy-posle-izmeny',
