@@ -1,6 +1,9 @@
 import { articlePath } from './site-routes.js';
 
 export const articleCardOrder = [
+  'zhena-ohladela-chto-delat',
+  'propal-seks-v-otnosheniyah',
+  'zhena-ne-uvazhaet',
   'zhena-hochet-razvoda-chto-delat',
   'zhena-skazala-chto-ne-lyubit',
   'kak-perezhit-izmenu-zheny',

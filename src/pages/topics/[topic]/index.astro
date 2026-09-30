@@ -5,6 +5,7 @@ import Header from '../../../components/Header.astro';
 import Footer from '../../../components/Footer.astro';
 import Breadcrumbs from '../../../components/Breadcrumbs.astro';
 import ArticleCta from '../../../components/ArticleCta.astro';
+import KrizisPillar from '../../../components/KrizisPillar.astro';
 import IzmenaPillar from '../../../components/IzmenaPillar.astro';
 import ZhenaHochetUyitiPillar from '../../../components/ZhenaHochetUyitiPillar.astro';
 import { topicList, getTopicBySlug } from '../../../data/topics.js';
@@ -33,7 +34,7 @@ const title = topic.seoTitle ?? `${topic.label} — PRO Мужчин`;
 <BaseLayout title={title} description={topic.description} canonical={canonical} jsonLd={[buildBreadcrumbJsonLd(breadcrumbItems)]}>
   <Header />
   <main class="topic-page">
-    {isIzmenaPillar ? <IzmenaPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : isZhenaHochetUyitiPillar ? <ZhenaHochetUyitiPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : <>
+    {isIzmenaPillar ? <IzmenaPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : isZhenaHochetUyitiPillar ? <ZhenaHochetUyitiPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : topic.id === 'krizis-v-otnosheniyah' ? <KrizisPillar topic={topic} articles={allArticles} breadcrumbItems={breadcrumbItems} /> : <>
       <section class="topic-hero shell">
       <Breadcrumbs items={breadcrumbItems} />
       <h1>{topic.label}</h1>
