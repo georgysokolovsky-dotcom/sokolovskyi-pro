@@ -7,7 +7,7 @@
     "contactEmail": null,
     "ownerName": null,
     "orderSpecificationRequired": true,
-    "myTermsUrl": null,
+    "myTermsUrl": "https://t.me/sokolovskyi_student_bot",
     "myTermsAuthorizationVerified": false
   },
   "requiredFacts": [
