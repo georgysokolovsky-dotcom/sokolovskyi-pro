@@ -52,6 +52,23 @@ function isCalendarDate(value) {
   return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+// Only a shared entry point belongs in public pages or a course lesson.
+// Order IDs, session tokens and Telegram start payloads are issued privately.
+export function isSharedMyTermsUrl(value) {
+  if (typeof value !== 'string' || !value.trim() || value !== value.trim()) return false;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || value.includes('?') || value.includes('#') || url.port) return false;
+  if (url.hostname === 't.me') return /^\/[a-z][a-z0-9_]{4,31}\/?$/i.test(url.pathname);
+  if (url.hostname === 'localhost' || url.hostname.endsWith('.localhost') || !url.hostname.includes('.')) return false;
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(url.hostname) || url.hostname.includes(':')) return false;
+  return url.pathname === '/my-terms' || url.pathname === '/my-terms/';
+}
+
 function describeError(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -131,6 +148,12 @@ export function validateServiceLegalRelease({ release, documents, registry = ser
     }
     if (publication.orderSpecificationRequired !== true) {
       errors.push('Нужно закрепить обязательность индивидуальных условий каждого заказа.');
+    }
+    if (!isSharedMyTermsUrl(publication.myTermsUrl)) {
+      errors.push('Нужна общая HTTPS-ссылка publication.myTermsUrl в «Мои условия» без личных параметров или токенов.');
+    }
+    if (publication.myTermsAuthorizationVerified !== true) {
+      errors.push('Нужно проверить идентификацию участника и доступ только к своим заказам в «Мои условия».');
     }
   }
 

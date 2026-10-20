@@ -4,7 +4,7 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { serviceLegal } from '../data/service-legal.js';
 
-const { document, mode, effectiveFrom = null } = Astro.props;
+const { document, mode, effectiveFrom = null, myTermsUrl = null } = Astro.props;
 const preview = mode === 'preview';
 const description = document.label + ' для участников услуг Георгия Соколовского.';
 ---
@@ -38,6 +38,15 @@ const description = document.label + ' для участников услуг Г
       {document.id === 'privacy' && (
         <p class="service-legal__scope">Этот документ описывает обработку данных участников услуг. Информация для посетителей сайта размещена в <a href="/privacy-policy/">политике конфиденциальности сайта</a>.</p>
       )}
+      <aside class="service-legal__order-access" data-service-legal-order-access>
+        <strong>Документы вашего заказа</strong>
+        <p>Состав, цена, сроки и принятая редакция относятся к конкретному заказу. Для ранее оформленного участия сохраняются его документы и согласованные изменения.</p>
+        {myTermsUrl ? (
+          <p><a href={myTermsUrl} data-my-terms-link>Открыть «Мои условия»</a>. После входа доступны только ваши заказы и сохраняемые копии документов.</p>
+        ) : (
+          <p data-my-terms-unavailable>Переход в «Мои условия» пока не подключён. Эта страница показывает общий проект документов и не подтверждает оформление заказа.</p>
+        )}
+      </aside>
       <nav class="service-legal__navigation" aria-label="Документы для участников">
         {serviceLegal.documents.map((item) => (
           <a href={item.path} aria-current={item.id === document.id ? 'page' : undefined}>{item.label}</a>
@@ -47,7 +56,7 @@ const description = document.label + ' для участников услуг Г
     <article class="service-legal__content">
       <slot />
     </article>
-    <p class="service-legal__print-note">Для сохранения копии можно использовать команду печати браузера и выбрать сохранение в PDF.</p>
+    <p class="service-legal__print-note">Эту общую страницу можно сохранить через печать браузера в PDF. Принятый комплект конкретного заказа выдаётся отдельно и доступен в «Мои условия». Проект документа не заменяет принятую копию.</p>
   </main>
   <Footer />
 </BaseLayout>
@@ -61,6 +70,9 @@ const description = document.label + ' для участников услуг Г
   .service-legal__notice strong { display: block; margin-bottom: 8px; font-size: 20px; }
   .service-legal__notice p, .service-legal__scope { margin: 12px 0; color: var(--muted); font-size: 16px; line-height: 1.7; }
   .service-legal__navigation { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; }
+  .service-legal__order-access { margin-top: 26px; padding: 22px 24px; border: 1px solid var(--line); border-radius: 6px; }
+  .service-legal__order-access strong { font-size: 18px; }
+  .service-legal__order-access p { margin: 12px 0 0; color: var(--muted); font-size: 16px; line-height: 1.7; }
   .service-legal a { color: var(--accent-dark); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
   .service-legal__navigation a[aria-current='page'] { font-weight: 700; color: var(--ink); }
   .service-legal__content { min-width: 0; font-size: 17px; line-height: 1.78; overflow-wrap: anywhere; }

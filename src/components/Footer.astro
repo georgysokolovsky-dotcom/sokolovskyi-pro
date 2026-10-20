@@ -14,6 +14,7 @@ const establishedLegalLinks = legalStatus === 'approved' ? Object.entries(legalP
       <a href="/privacy-policy/">Политика конфиденциальности</a>
       {establishedLegalLinks.map(([path, document]) => <a href={'/' + path + '/'}>{document.title}</a>)}
       {serviceLinks.map((document) => <a href={document.path}>{document.label}</a>)}
+      {serviceBundle.mode === 'published' && <a href={serviceBundle.release.publication.myTermsUrl} data-my-terms-link>Мои условия</a>}
     </nav>
     <p class="site-footer__note">Материалы сайта помогают разобраться в ситуации. Они не заменяют медицинскую, юридическую или экстренную помощь.</p>
   </div>

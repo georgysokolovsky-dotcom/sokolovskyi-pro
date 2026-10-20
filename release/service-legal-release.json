@@ -6,7 +6,9 @@
     "origin": "https://sokolovskyi.pro",
     "contactEmail": null,
     "ownerName": null,
-    "orderSpecificationRequired": true
+    "orderSpecificationRequired": true,
+    "myTermsUrl": null,
+    "myTermsAuthorizationVerified": false
   },
   "requiredFacts": [
     {
