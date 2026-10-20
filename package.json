@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "dev:astro": "astro dev",
+    "prebuild:astro": "node scripts/clean-astro-build.mjs",
     "build:astro": "astro build",
     "preview:astro": "astro preview",
     "baseline": "node scripts/create-migration-baseline.mjs",

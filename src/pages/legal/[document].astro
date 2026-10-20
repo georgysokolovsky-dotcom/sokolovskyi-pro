@@ -1,0 +1,24 @@
+---
+import type { MarkdownInstance } from 'astro';
+import ServiceLegalLayout from '../../layouts/ServiceLegalLayout.astro';
+import { loadServiceLegalBundle } from '../../data/service-legal.js';
+
+export function getStaticPaths() {
+  const bundle = loadServiceLegalBundle();
+  return bundle.documents.map((document) => ({
+    params: { document: document.id },
+    props: { document, mode: bundle.mode, effectiveFrom: bundle.release?.effectiveFrom ?? null },
+  }));
+}
+
+const { document, mode, effectiveFrom } = Astro.props;
+const sources = import.meta.glob<MarkdownInstance<{ title: string; version: string }>>(
+  '../../content/service-legal/*.md',
+);
+const loadDocument = sources['../../content/service-legal/' + document.id + '.md'];
+if (!loadDocument) throw new Error('Не найден Markdown юридического документа: ' + document.id);
+const { Content } = await loadDocument();
+---
+<ServiceLegalLayout document={document} mode={mode} effectiveFrom={effectiveFrom}>
+  <Content />
+</ServiceLegalLayout>

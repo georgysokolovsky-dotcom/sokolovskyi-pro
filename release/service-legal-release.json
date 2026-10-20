@@ -1,0 +1,52 @@
+{
+  "version": "2026-10-20-v1",
+  "scope": "new-orders-only",
+  "effectiveFrom": null,
+  "publication": {
+    "origin": "https://sokolovskyi.pro",
+    "contactEmail": null,
+    "ownerName": null,
+    "orderSpecificationRequired": true
+  },
+  "requiredFacts": [
+    {
+      "id": "new_order_workflow",
+      "label": "Фактический процесс подтверждения заказа до оплаты и выдачи сохраняемой копии",
+      "value": null,
+      "confirmedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "operating_terms",
+      "label": "Принятые для будущих продаж операционные сроки и порядок прекращения участия",
+      "value": null,
+      "confirmedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "participant_data_processes",
+      "label": "Состав данных, сервисы, записи, сроки хранения и применимые передачи",
+      "value": null,
+      "confirmedAt": null,
+      "evidence": null
+    },
+    {
+      "id": "service_classification_and_market",
+      "label": "Фактическое содержание услуг, требования к исполнению и рынки продаж",
+      "value": null,
+      "confirmedAt": null,
+      "evidence": null
+    }
+  ],
+  "documents": {
+    "terms": {
+      "sha256": "0fab299e13974a9458518b7ff7b76699331a68f0990d0378f00cf2c0ad7d2a5f"
+    },
+    "privacy": {
+      "sha256": "21a89c703e3af623de7a5b20a28cd2822459c130189b76511bf24196a855ed17"
+    },
+    "withdrawal": {
+      "sha256": "ad5f50d61e96c408d38760bb2d8f3a6115b2a8df129306cc0e160dd4557fe50f"
+    }
+  }
+}

@@ -1,0 +1,98 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { serviceLegal } from '../data/service-legal.js';
+
+const { document, mode, effectiveFrom = null } = Astro.props;
+const preview = mode === 'preview';
+const description = document.label + ' для участников услуг Георгия Соколовского.';
+---
+<BaseLayout
+  title={document.title + ' | PRO Мужчин'}
+  description={description}
+  canonical={preview ? null : new URL(document.path, serviceLegal.origin).toString()}
+  robots={preview ? 'noindex, nofollow' : 'index, follow'}
+>
+  <Header />
+  <main
+    class="service-legal shell"
+    data-service-legal-document={document.id}
+    data-service-legal-version={document.version}
+    data-service-legal-mode={mode}
+  >
+    <header class="service-legal__header">
+      <p class="section-label">Документы для участников услуг</p>
+      <h1>{document.title}</h1>
+      <p class="service-legal__version">
+        Редакция {document.version}{effectiveFrom && ' · Для новых заказов с ' + effectiveFrom}
+      </p>
+      {preview ? (
+        <aside class="service-legal__notice" data-service-legal-preview>
+          <strong>Проект для согласования</strong>
+          <p>Эта версия предназначена для проверки текста. Она ещё не опубликована как условия новых заказов. Ознакомление с этой страницей не означает принятия договора.</p>
+        </aside>
+      ) : (
+        <p class="service-legal__scope">Эта редакция относится к новым заказам, оформленным с её указанием. Условия ранее оформленного участия определяются принятой при заказе редакцией и последующими согласованными изменениями.</p>
+      )}
+      {document.id === 'privacy' && (
+        <p class="service-legal__scope">Этот документ описывает обработку данных участников услуг. Информация для посетителей сайта размещена в <a href="/privacy-policy/">политике конфиденциальности сайта</a>.</p>
+      )}
+      <nav class="service-legal__navigation" aria-label="Документы для участников">
+        {serviceLegal.documents.map((item) => (
+          <a href={item.path} aria-current={item.id === document.id ? 'page' : undefined}>{item.label}</a>
+        ))}
+      </nav>
+    </header>
+    <article class="service-legal__content">
+      <slot />
+    </article>
+    <p class="service-legal__print-note">Для сохранения копии можно использовать команду печати браузера и выбрать сохранение в PDF.</p>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<style>
+  .service-legal { max-width: 920px; padding-top: clamp(42px, 7vw, 88px); padding-bottom: 72px; }
+  .service-legal__header { margin-bottom: 46px; }
+  .service-legal h1 { margin: 12px 0 22px; font-size: clamp(34px, 6vw, 60px); line-height: 1.08; overflow-wrap: anywhere; }
+  .service-legal__version { color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .service-legal__notice { margin: 26px 0; padding: 22px 24px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .service-legal__notice strong { display: block; margin-bottom: 8px; font-size: 20px; }
+  .service-legal__notice p, .service-legal__scope { margin: 12px 0; color: var(--muted); font-size: 16px; line-height: 1.7; }
+  .service-legal__navigation { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; }
+  .service-legal a { color: var(--accent-dark); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+  .service-legal__navigation a[aria-current='page'] { font-weight: 700; color: var(--ink); }
+  .service-legal__content { min-width: 0; font-size: 17px; line-height: 1.78; overflow-wrap: anywhere; }
+  .service-legal__content :global(h1), .service-legal__content :global(h2), .service-legal__content :global(h3), .service-legal__content :global(h4) { color: var(--ink); line-height: 1.25; margin: 2em 0 .7em; scroll-margin-top: 28px; }
+  .service-legal__content :global(h1), .service-legal__content :global(h2) { font-size: clamp(26px, 4vw, 34px); }
+  .service-legal__content :global(h3) { font-size: 23px; }
+  .service-legal__content :global(p), .service-legal__content :global(ul), .service-legal__content :global(ol) { margin: 0 0 1.1em; }
+  .service-legal__content :global(li) { margin-bottom: .55em; }
+  .service-legal__content :global(ul), .service-legal__content :global(ol) { padding-left: 1.5em; }
+  .service-legal__content :global(a) { color: var(--accent-dark); text-decoration: underline; text-underline-offset: 3px; }
+  .service-legal__content :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1.5em 0; font-size: .9em; }
+  .service-legal__content :global(th), .service-legal__content :global(td) { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; min-width: 130px; }
+  .service-legal__content :global(blockquote) { margin: 1.5em 0; padding: 12px 20px; border-left: 3px solid var(--accent); }
+  .service-legal__content :global(pre) { white-space: pre-wrap; word-break: break-word; padding: 18px; }
+  .service-legal__print-note { margin: 44px 0 0; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.6; }
+  @media (max-width: 640px) {
+    .service-legal { padding-top: 36px; padding-bottom: 46px; }
+    .service-legal__content { font-size: 16px; line-height: 1.72; }
+    .service-legal__notice { padding: 18px; }
+    .service-legal__navigation { gap: 10px 18px; }
+  }
+  @media print {
+    :global(.site-header), :global(.site-footer), .service-legal__navigation, .service-legal__print-note { display: none !important; }
+    .service-legal { max-width: none; width: 100%; padding: 0; margin: 0; color: #000; }
+    .service-legal h1 { font-size: 24pt; }
+    .service-legal__content, .service-legal__scope, .service-legal__notice p { font-size: 10.5pt; line-height: 1.5; color: #000; }
+    .service-legal__content :global(h2) { font-size: 16pt; }
+    .service-legal__content :global(h3) { font-size: 13pt; }
+    .service-legal__content :global(h1), .service-legal__content :global(h2), .service-legal__content :global(h3) { break-after: avoid; }
+    .service-legal__content :global(p), .service-legal__content :global(li) { orphans: 3; widows: 3; }
+    .service-legal__content :global(table) { display: table; width: 100%; overflow: visible; table-layout: fixed; }
+    .service-legal__content :global(th), .service-legal__content :global(td) { min-width: 0; }
+    .service-legal__notice { border-color: #000; background: none; break-inside: avoid; }
+  }
+</style>
