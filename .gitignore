@@ -1,6 +1,7 @@
 # Dependencies and build output
 node_modules/
 dist/
+dist-legal-preview/
 tmp/
 
 # Private source material and internal working files
@@ -22,6 +23,15 @@ content/drafts/
 !src/content/
 !src/content/articles/
 !src/content/articles/*.md
+!src/content/service-legal/
+!src/content/service-legal/*.md
+!docs/service-legal/2026-10-20-v1/contract-uk.md
+!docs/service-legal/2026-10-20-v1/individual-order-ru.md
+!docs/service-legal/2026-10-20-v1/partner-agreement-ru.md
+!docs/service-legal/2026-10-20-v1/kwiga-lesson-ru.md
+!docs/service-legal/2026-10-20-v1/checkout-and-messages-ru.md
+!docs/service-legal/2026-10-20-v1/consents-ru.md
+!docs/service-legal/my-terms-integration.md
 !migration/
 !migration/target-architecture.md
 !migration/baseline/
