@@ -10,6 +10,6 @@ const { compact = false, articleId = 'home', topic = 'overview' } = Astro.props;
       <p class="section-label">Бесплатный вебинар</p>
       <h2>{topic === 'krizis-v-otnosheniyah' ? 'Вернуть опору, увидеть свои границы и повторяющиеся сценарии' : '3 шага как стать мужчиной, с которым считаются, ценят и боятся потерять'}</h2>
     </div>
-    <ArticleCta placement={compact ? 'inline' : 'footer'} articleId={articleId} topic={topic}>{compact ? 'Регистрация' : 'Посмотреть вебинар'}</ArticleCta>
+    <ArticleCta placement={compact ? 'band' : 'footer'} articleId={articleId} topic={topic}>{compact ? 'Регистрация' : 'Посмотреть вебинар'}</ArticleCta>
   </div>
 </section>

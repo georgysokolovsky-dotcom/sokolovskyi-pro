@@ -19,15 +19,33 @@ const breadcrumbItems = [{ label: 'Документы', href: '/editorial-policy
   <Header />
   <main>
     <PageIntro breadcrumbs={breadcrumbItems} title={data.title} lead={data.description} />
-    <section class="legal-placeholder shell section-space">
-      <div class="legal-placeholder__mark">i</div>
-      <div>
-        <p class="section-label">Страница в каркасе</p>
-        <h2>Текст готовится к юридической проверке</h2>
-        <p>Перед публичным запуском здесь должны появиться актуальные условия для владельца сайта, региона аудитории и используемых сервисов. До проверки этот раздел не считается финальной юридической публикацией.</p>
-        <span class="legal-status">Статус: {legalStatus}</span>
-      </div>
-    </section>
+    <article class="visitor-information shell section-space">
+      {data.sections.map((section) => (
+        <section>
+          <h2>{section.title}</h2>
+          {section.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+        </section>
+      ))}
+      {data.showCookieSettings && <button class="button button--accent" type="button" data-open-cookie-settings>Настройки cookie</button>}
+      <nav class="visitor-information__links" aria-label="Связанные страницы">
+        {data.links.map((link) => <a href={link.href}>{link.label}</a>)}
+      </nav>
+    </article>
   </main>
   <Footer />
 </BaseLayout>
+
+<style>
+  .visitor-information { max-width: 860px; }
+  .visitor-information section + section { margin-top: 40px; }
+  .visitor-information h2 { margin: 0 0 16px; font-size: clamp(26px, 3vw, 36px); line-height: 1.2; }
+  .visitor-information p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.72; }
+  .visitor-information p + p { margin-top: 14px; }
+  .visitor-information .button { margin-top: 32px; }
+  .visitor-information__links { display: flex; flex-wrap: wrap; gap: 16px 24px; margin-top: 32px; }
+  .visitor-information__links a { color: var(--accent-dark); text-underline-offset: 3px; }
+  @media (max-width: 720px) {
+    :global(.page-intro h1) { overflow-wrap: anywhere; }
+    .visitor-information p { font-size: 15px; }
+  }
+</style>

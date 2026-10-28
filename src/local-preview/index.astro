@@ -1,0 +1,10 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+const enabled = import.meta.env.DEV && process.env.DRAFT_PREVIEW === '1';
+if (!enabled) return new Response(null, { status: 404 });
+const entries = (await getCollection('articles')).filter(({data}) => data.status === 'draft');
+---
+<BaseLayout title="Локальные черновики" description="Материалы для редакционной проверки" robots="noindex, nofollow">
+  <main class="shell section-space"><h1>Локальные черновики</h1><p>Эти статьи отсутствуют в публичной сборке и sitemap.</p><ul>{entries.map(({data}) => <li><a href={`/__drafts/${data.slug}/`}>{data.title}</a></li>)}</ul><a href="/articles/">Опубликованные статьи</a></main>
+</BaseLayout>

@@ -1,0 +1,15 @@
+---
+import { getCollection, render } from 'astro:content';
+import ArticleLayout from '../layouts/ArticleLayout.astro';
+import { relatedEntries } from '../lib/content-presentation.js';
+export async function getStaticPaths() {
+  if (!import.meta.env.DEV || process.env.DRAFT_PREVIEW !== '1') return [];
+  const entries = await getCollection('articles');
+  return Promise.all(entries.filter(({data}) => data.status === 'draft').map(async (entry) => {
+    const rendered = await render(entry);
+    return { params: { slug: entry.data.slug }, props: { entry, Content: rendered.Content, headings: rendered.headings, relatedArticles: relatedEntries(entries.filter(({data}) => data.status === 'published'), entry.data.relatedArticles) } };
+  }));
+}
+const { entry, Content, headings, relatedArticles } = Astro.props;
+---
+<ArticleLayout entry={entry} Content={Content} headings={headings} relatedArticles={relatedArticles} preview />

@@ -1,4 +1,6 @@
 ---
+import Analytics from '../components/Analytics.astro';
+import { pageContext } from '../lib/page-context.js';
 import SeoHead from '../components/SeoHead.astro';
 import '../styles/global.css';
 
@@ -11,7 +13,10 @@ const {
   ogImage,
   ogImageAlt,
   jsonLd = [],
+  context = {},
 } = Astro.props;
+const page = pageContext(Astro.url.pathname, context);
+const analyticsEnabled = import.meta.env.PROD && !import.meta.env.DRAFT_PREVIEW;
 ---
 <!doctype html>
 <html lang="ru">
@@ -22,7 +27,8 @@ const {
     <SeoHead title={title} description={description} canonical={canonical} robots={robots} ogType={ogType} ogImage={ogImage} ogImageAlt={ogImageAlt} jsonLd={jsonLd} />
     <slot name="head" />
   </head>
-  <body>
+  <body data-page-path={Astro.url.pathname} data-page-id={page.page_id} data-page-type={page.page_type} data-article-id={page.article_id} data-topic={page.topic} data-analytics-enabled={String(analyticsEnabled)}>
     <slot />
+    <Analytics />
   </body>
 </html>

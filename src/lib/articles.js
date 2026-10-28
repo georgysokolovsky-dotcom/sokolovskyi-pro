@@ -1,3 +1,4 @@
+import { readingMinutes } from './content-presentation.js';
 import { articlePath } from './site-routes.js';
 
 export const articleCardOrder = [
@@ -29,7 +30,10 @@ export function publishedArticles(entries) {
 
 export function sortArticles(entries) {
   const order = new Map(articleCardOrder.map((slug, index) => [slug, index]));
-  return [...entries].sort((a, b) => (order.get(a.data.slug) ?? 999) - (order.get(b.data.slug) ?? 999));
+  return [...entries].sort((a, b) => {
+    const date = (entry) => new Date(entry.data.datePublished ?? entry.data.dateModified ?? 0).getTime();
+    return date(b) - date(a) || (order.get(a.data.slug) ?? 999) - (order.get(b.data.slug) ?? 999) || a.data.slug.localeCompare(b.data.slug);
+  });
 }
 
 export function articleCardData(entry) {
@@ -38,7 +42,7 @@ export function articleCardData(entry) {
     href: articlePath(data.slug),
     title: data.title,
     description: data.description,
-    time: (data.readingTime ?? '').replace(/\s*чтения?$/i, ''),
+    time: `${readingMinutes(entry.body)} мин`,
   };
 }
 

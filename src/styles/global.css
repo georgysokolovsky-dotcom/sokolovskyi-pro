@@ -524,3 +524,8 @@
     font-size: 44px;
   }
 }
+
+[hidden] { display: none !important; }
+.cookie-consent { max-height: calc(100dvh - 24px); overflow-y: auto; }
+.article-meta__reading { white-space: nowrap; }
+.draft-notice { padding: 14px 20px; background: #eee5d8; color: #17232c; }

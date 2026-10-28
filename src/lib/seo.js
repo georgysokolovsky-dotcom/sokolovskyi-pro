@@ -1,10 +1,13 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { authors } from '../data/authors.js';
 import { site } from '../data/site.js';
 import { absoluteUrl, articlePath } from './site-routes.js';
 
 export function articleSocialImage(article) {
   const imageName = article.data?.article_id;
-  return imageName ? `${site.origin}/images/social/${imageName}-social.svg` : `${site.origin}${authors[site.authorId].image}`;
+  const valid = imageName && /^[a-z0-9_-]+$/i.test(imageName) && existsSync(join(process.cwd(), 'public-astro/images/social', `${imageName}-social.svg`));
+  return valid ? `${site.origin}/images/social/${imageName}-social.svg` : `${site.origin}${authors[site.authorId].image}`;
 }
 
 export function buildWebsiteJsonLd() {

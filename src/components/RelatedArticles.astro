@@ -1,7 +1,7 @@
 ---
 import { articlePath } from '../lib/site-routes.js';
 
-const { articles = [] } = Astro.props;
+const articles = (Astro.props.articles ?? []).filter(Boolean);
 ---
 {articles.length > 0 && <section class="related shell section-space">
   <div class="section-heading section-heading--line"><h2>Ещё по теме</h2></div>

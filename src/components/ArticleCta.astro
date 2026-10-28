@@ -1,27 +1,10 @@
 ---
 import { site } from '../data/site.js';
-
-const {
-  articleId = 'home',
-  topic = 'overview',
-  placement = 'footer',
-  searchIntent = '',
-  class: className = 'button button--accent',
-} = Astro.props;
-const allowedPlacement = site.webinarPlacements.includes(placement) ? placement : 'footer';
-const params = new URLSearchParams({
-  ...site.defaultWebinarParams,
-  utm_content: articleId,
-  article_id: articleId,
-  topic,
-  placement: allowedPlacement,
-});
+import { webinarHref, webinarPlacements } from '../lib/attribution.js';
+import { pageContext } from '../lib/page-context.js';
+const page = Astro.locals.pageContext ?? pageContext(Astro.url.pathname);
+const { articleId = page.article_id, topic = page.topic, placement = 'footer', searchIntent = '', class: className = 'button button--accent' } = Astro.props;
+const allowedPlacement = webinarPlacements.includes(placement) ? placement : 'footer';
+const context = { article_id: page.page_type === 'article' ? articleId : '', topic, placement: allowedPlacement, page_id: page.page_id, page_type: page.page_type };
 ---
-<a
-  class={className}
-  href={`${site.webinarRoute}?${params.toString()}`}
-  data-article-id={articleId}
-  data-topic={topic}
-  data-search-intent={searchIntent}
-  data-placement={allowedPlacement}
-><slot>Записаться на бесплатный вебинар</slot></a>
+<a class={className} href={webinarHref(site.webinarRoute, context)} data-webinar-cta data-article-id={page.page_type === 'article' ? articleId : ''} data-topic={topic} data-search-intent={searchIntent} data-placement={allowedPlacement}><slot>Записаться на бесплатный вебинар</slot></a>

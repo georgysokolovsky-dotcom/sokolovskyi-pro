@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
@@ -31,6 +31,19 @@ for (const file of htmlFiles) {
     const path = new URL(href, 'https://sokolovskyi.pro').pathname;
     const normalized = path === '/' ? '/' : `${path.replace(/\/+$/, '')}/`;
     if (!builtRoutes.has(path) && !builtRoutes.has(normalized)) errors.push(`${relative(root, file)} -> ${href}`);
+  }
+}
+
+for (const file of htmlFiles) {
+  const html = await readFile(file, 'utf8');
+  const imageUrls = [
+    ...[...html.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["']/gi)].map((m) => m[1]),
+    ...[...html.matchAll(/<meta\b[^>]*(?:property=["']og:image["']|name=["']twitter:image["'])[^>]*content=["']([^"']+)["']/gi)].map((m) => m[1]),
+  ];
+  for (const value of imageUrls) {
+    const url = new URL(value, 'https://sokolovskyi.pro');
+    if (url.origin !== 'https://sokolovskyi.pro') continue;
+    if (url.pathname.includes('undefined') || !(await access(join(dist, decodeURIComponent(url.pathname))).then(() => true).catch(() => false))) errors.push(`${relative(root, file)} -> missing image ${value}`);
   }
 }
 

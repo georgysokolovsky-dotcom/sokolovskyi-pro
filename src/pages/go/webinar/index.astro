@@ -1,7 +1,7 @@
 ---
 import { site } from '../../../data/site.js';
 
-const allowedKeys = JSON.stringify(site.webinarParamKeys);
+
 ---
 <!doctype html>
 <html lang="ru">
@@ -33,6 +33,15 @@ const allowedKeys = JSON.stringify(site.webinarParamKeys);
       <p>Если переход не продолжился автоматически, используй ссылку ниже.</p>
       <a id="webinar-fallback" href={site.webinarTarget}>Открыть страницу вебинара</a>
     </main>
-    <script is:inline set:html={`const keys=${allowedKeys};const link=document.querySelector('#webinar-fallback');if(link){const source=new URLSearchParams(window.location.search);const destination=new URL(link.href);keys.forEach((key)=>{const value=source.get(key);if(value&&value.length<=120)destination.searchParams.set(key,value)});link.href=destination.toString();window.location.replace(link.href)}`} />
+    <script>
+      import { allowedParams } from '../../../lib/attribution.js';
+      const link = document.querySelector<HTMLAnchorElement>('#webinar-fallback');
+      if (link) {
+        const target = new URL(link.href);
+        Object.entries(allowedParams(new URLSearchParams(window.location.search))).forEach(([key, value]) => target.searchParams.set(key, value));
+        link.href = target.toString();
+        window.location.replace(link.href);
+      }
+    </script>
   </body>
 </html>

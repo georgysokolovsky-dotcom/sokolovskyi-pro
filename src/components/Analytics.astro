@@ -1,1 +1,8 @@
-<!-- Analytics is intentionally empty at stages 1–3. -->
+<aside class="cookie-consent" role="dialog" aria-label="Настройки аналитики" data-consent-panel hidden>
+  <div><p class="cookie-consent__title">Настройки cookie</p><p>Аналитика помогает понимать, какие материалы читают и откуда переходят на вебинар. Выбор можно изменить внизу страницы.</p><a href="/cookie-policy/">Подробнее о cookie</a></div>
+  <div class="cookie-consent__actions"><button class="button button--accent" type="button" data-consent-choice="granted">Разрешить аналитику</button><button class="cookie-consent__secondary" type="button" data-consent-choice="denied">Только необходимые</button></div>
+</aside>
+<script>
+  import { initSiteClient } from '../lib/analytics.js';
+  initSiteClient();
+</script>

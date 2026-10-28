@@ -1,23 +1,28 @@
 ---
 import { getCollection, render } from 'astro:content';
 import ArticleLayout from '../../../layouts/ArticleLayout.astro';
-import { publishedArticles, findArticle } from '../../../lib/articles.js';
+import { publishedArticles } from '../../../lib/articles.js';
+import { relatedEntries } from '../../../lib/content-presentation.js';
 import { validateArticleEntries } from '../../../lib/content-validation.js';
 
 export async function getStaticPaths() {
   const entries = await getCollection('articles');
   validateArticleEntries(entries);
   const published = publishedArticles(entries);
-  return Promise.all(published.map(async (entry) => ({
-    params: { slug: entry.data.slug },
-    props: {
-      entry,
-      Content: (await render(entry)).Content,
-      relatedArticles: entry.data.relatedArticles.map((slug) => findArticle(published, slug)),
-    },
-  })));
+  return Promise.all(published.map(async (entry) => {
+    const rendered = await render(entry);
+    return {
+      params: { slug: entry.data.slug },
+      props: {
+        entry,
+        Content: rendered.Content,
+        headings: rendered.headings,
+        relatedArticles: relatedEntries(published, entry.data.relatedArticles),
+      },
+    };
+  }));
 }
 
-const { entry, Content, relatedArticles } = Astro.props;
+const { entry, Content, headings, relatedArticles } = Astro.props;
 ---
-<ArticleLayout entry={entry} Content={Content} relatedArticles={relatedArticles} />
+<ArticleLayout entry={entry} Content={Content} headings={headings} relatedArticles={relatedArticles} />

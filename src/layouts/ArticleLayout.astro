@@ -7,13 +7,12 @@ import Breadcrumbs from '../components/Breadcrumbs.astro';
 import RelatedArticles from '../components/RelatedArticles.astro';
 import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
-import WebinarBand from '../components/WebinarBand.astro';
 import { authors } from '../data/authors.js';
-import { site } from '../data/site.js';
+import { readingMinutes, summaryItems } from '../lib/content-presentation.js';
 import { getTopicFromArticle, absoluteUrl, topicPath } from '../lib/site-routes.js';
-import { buildArticleJsonLd, buildBreadcrumbJsonLd } from '../lib/seo.js';
+import { buildArticleJsonLd, buildBreadcrumbJsonLd, articleSocialImage } from '../lib/seo.js';
 
-const { entry, Content, relatedArticles = [] } = Astro.props;
+const { entry, Content, headings = [], relatedArticles = [], preview = false } = Astro.props;
 const { title, description, slug, author, datePublished, dateModified, topic: topicId, search_intent: searchIntent } = entry.data;
 const topic = getTopicFromArticle(entry);
 const canonical = absoluteUrl(`/articles/${slug}/`);
@@ -22,39 +21,31 @@ const breadcrumbItems = [
   { label: topic?.label ?? 'Материал', href: topic ? topicPath(topic.id) : undefined },
   { label: title },
 ];
-const summary = (entry.body ?? '').match(/^- \[([^\]]+)\]\(#([^\)]+)\)/gm)?.map((line) => {
-  const match = line.match(/^- \[([^\]]+)\]\(#([^\)]+)\)/);
-  return match ? { label: match[1], id: match[2] } : null;
-}).filter(Boolean) ?? [];
-const articlesWithInlineSummary = new Set([
-  'prostit-ili-uyti-posle-izmeny',
-  'zhena-hochet-razvoda-chto-delat',
-  'zhena-skazala-chto-ne-lyubit',
-  'zhena-ohladela-chto-delat',
-  'propal-seks-v-otnosheniyah',
-  'zhena-ne-uvazhaet',
-]);
-const showGeneratedSummary = !articlesWithInlineSummary.has(slug);
+const { items: summary, showGenerated: showGeneratedSummary } = summaryItems(entry.body, headings);
+const minutes = readingMinutes(entry.body);
+const context = { article_id: entry.data.article_id ?? slug, page_id: slug, page_type: 'article', topic: topicId };
+Astro.locals.pageContext = context;
 const authorRecord = authors[author];
 const jsonLd = [
   buildArticleJsonLd(entry, topic),
   buildBreadcrumbJsonLd(breadcrumbItems),
 ];
 ---
-<BaseLayout title={`${title} — PRO Мужчин`} description={description} canonical={canonical} ogType="article" ogImage={`${site.origin}/images/social/${entry.data.article_id}-social.svg`} ogImageAlt={title} jsonLd={jsonLd}>
-  <Header />
+<BaseLayout title={`${title} — PRO Мужчин`} description={description} canonical={preview ? null : canonical} robots={preview ? 'noindex, nofollow' : 'index, follow'} context={context} ogType="article" ogImage={articleSocialImage(entry)} ogImageAlt={title} jsonLd={preview ? [] : jsonLd}>
+  <Header articleId={context.article_id} topic={topicId} searchIntent={searchIntent} />
   <main class="article-page" data-article-slug={slug}>
+    {preview && <div class="draft-notice shell">Локальный черновик. Материал не опубликован. <a href="/__drafts/">Все черновики</a></div>}
     <div class="shell article-layout">
       <article class="article-content">
         <Breadcrumbs items={breadcrumbItems} />
         <h1>{title}</h1>
-        <ArticleMeta author={authorRecord.name} authorUrl={authorRecord.url} datePublished={datePublished} dateModified={dateModified} />
+        <ArticleMeta author={authorRecord.name} authorUrl={authorRecord.url} datePublished={datePublished} dateModified={dateModified} readingMinutes={minutes} />
         {showGeneratedSummary && <div class="article-summary" aria-label="Краткое содержание">
           <strong>В статье:</strong>
           {summary.map((item) => <a href={`#${item.id}`}>{item.label}</a>)}
         </div>}
         <div class="article-prose"><Content /></div>
-        <ArticleCta articleId={entry.data.article_id ?? slug} topic={topicId} searchIntent={searchIntent} placement="inline">{entry.data.cta.label}</ArticleCta>
+        <ArticleCta articleId={entry.data.article_id ?? slug} topic={topicId} searchIntent={searchIntent} placement="article_end">{entry.data.cta.label}</ArticleCta>
         <AuthorBio author={authorRecord} />
       </article>
       {showGeneratedSummary && summary.length > 0 && <aside class="article-aside">
@@ -63,7 +54,7 @@ const jsonLd = [
         <div class="aside-note"><span>01</span><p>Читай в своём темпе. Тебе не нужно принять решение за один вечер.</p></div>
       </aside>}
     </div>
-    <WebinarBand compact articleId={entry.data.article_id ?? slug} topic={topicId} />
+
     <RelatedArticles articles={relatedArticles} />
   </main>
   <Footer />

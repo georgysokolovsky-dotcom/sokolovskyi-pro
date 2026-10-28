@@ -6,7 +6,7 @@ topic: "deti-posle-razvoda"
 search_intent: "informational"
 author: "georgiy-sokolovsky"
 datePublished: null
-dateModified: "2026-09-05"
+dateModified: "2026-10-27"
 sources: []
 relatedArticles: ["kak-perezhit-razvod","skazat-detyam-o-razvode","obshchatsya-s-byvshey-posle-razvoda"]
 cta:
@@ -64,4 +64,4 @@ unresolvedFields:
 
 Если есть угрозы, насилие, давление на ребёнка или контакт становится небезопасным, используй профильную и экстренную помощь в своей стране. Вопросы здоровья ребёнка и семейного права обсуждай с соответствующими специалистами.
 
-Эта статья требует ручной проверки перед публикацией и не заменяет медицинскую, юридическую или экстренную помощь.
+Эта статья не заменяет медицинскую, юридическую или экстренную помощь.

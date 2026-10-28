@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
     "dev:astro": "astro dev",
     "build:astro": "astro build",
     "preview:astro": "astro preview",
@@ -17,7 +17,15 @@
     "check:routes": "node scripts/check-routes.mjs",
     "check:links": "node scripts/check-internal-links.mjs",
     "check:public-boundary": "node scripts/check-public-boundary.mjs",
-    "check:seo": "node scripts/compare-astro-baseline.mjs && node scripts/check-seo-architecture.mjs"
+    "check:seo": "node scripts/compare-astro-baseline.mjs && node scripts/check-seo-architecture.mjs",
+    "dev:legacy": "vite",
+    "build:legacy": "vite build",
+    "preview:legacy": "vite preview",
+    "dev:drafts": "node scripts/dev-drafts.mjs",
+    "test:site": "node --test scripts/tests/*.test.mjs",
+    "check:seo-architecture": "node scripts/check-seo-architecture.mjs",
+    "check:release": "npm run validate:content && npm run test:site && npm run build:astro && npm run check:links && npm run check:routes && npm run check:public-boundary && npm run check:seo-architecture && npm run check:built-content",
+    "check:built-content": "node scripts/check-built-content.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.2.0",
